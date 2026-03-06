@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <!-- Release with all fields -->
+  <release id="1002" status="Accepted">
+    <title>OK Computer</title>
+    <country>US</country>
+    <released>1997-07-01</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Capitol Records" catno="C1-55229" />
+    </labels>
+    <formats>
+      <format name="Vinyl" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release with no master_id -->
+  <release id="4001" status="Accepted">
+    <title>Amnesiac</title>
+    <country>UK</country>
+    <released>2001-06-05</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Parlophone" catno="7243 5 32764 2 8" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Packt Like Sardines in a Crushd Tin Box</title>
+        <duration>4:00</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release with no released date -->
+  <release id="5002" status="Accepted">
+    <title>Another Unknown</title>
+    <country>US</country>
+    <released></released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>900</master_id>
+    <artists>
+      <artist>
+        <id>4</id>
+        <name>Mystery Band</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Mystery Records" catno="MYS-002" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Mystery Track</title>
+        <duration>2:30</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release with unicode artist (Björk) -->
+  <release id="6001" status="Accepted">
+    <title>Homogenic</title>
+    <country>UK</country>
+    <released>Unknown</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1000</master_id>
+    <artists>
+      <artist>
+        <id>5</id>
+        <name>Björk</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="One Little Indian" catno="TPLP 71 CD" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Hunter</title>
+        <duration>4:15</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release with XML entity in artist name (Simon &amp; Garfunkel) -->
+  <release id="9002" status="Accepted">
+    <title>Bridge Over Troubled Water</title>
+    <country>US</country>
+    <released>1970</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1400</master_id>
+    <artists>
+      <artist>
+        <id>9</id>
+        <name>Simon &amp; Garfunkel</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Columbia" catno="KCS 9914" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Bridge Over Troubled Water</title>
+        <duration>4:52</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Joy Division release -->
+  <release id="2001" status="Accepted">
+    <title>Unknown Pleasures</title>
+    <country>UK</country>
+    <released>1979-06-15</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>600</master_id>
+    <artists>
+      <artist>
+        <id>2</id>
+        <name>Joy Division</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Factory Records" catno="FACT 10" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Disorder</title>
+        <duration>3:29</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release with NO artists (should be skipped) -->
+  <release id="9999" status="Accepted">
+    <title>Ghost Release</title>
+    <country>US</country>
+    <released>2020</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <labels>
+      <label name="No Artist Label" catno="NA-001" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Orphan Track</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>
+</releases>
