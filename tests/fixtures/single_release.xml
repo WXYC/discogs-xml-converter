@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <release id="1001" status="Accepted">
+    <title>OK Computer</title>
+    <country>UK</country>
+    <released>1997-06-16</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <extraartists>
+      <artist>
+        <id>12</id>
+        <name>Some Producer</name>
+        <anv></anv>
+        <join></join>
+        <role>Producer</role>
+      </artist>
+    </extraartists>
+    <labels>
+      <label name="Parlophone" catno="7243 8 55229 2 8" />
+      <label name="Capitol Records" catno="CDP 7243 8 55229 2 8" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="">
+        <descriptions><description>Album</description></descriptions>
+      </format>
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Paranoid Android</title>
+        <duration>6:23</duration>
+      </track>
+      <track>
+        <position>3</position>
+        <title>Subterranean Homesick Alien</title>
+        <duration>4:27</duration>
+      </track>
+    </tracklist>
+    <images>
+      <image type="primary" width="600" height="600" uri="https://img.discogs.com/abc123/release-1001.jpg" />
+      <image type="secondary" width="300" height="300" uri="https://img.discogs.com/abc123/release-1001-back.jpg" />
+    </images>
+  </release>
+</releases>
