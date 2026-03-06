@@ -1,0 +1,17 @@
+id,status,title,country,released,notes,data_quality,master_id,format
+1001,Accepted,OK Computer,UK,1997-06-16,,Correct,500,CD
+1002,Accepted,OK Computer,US,1997-07-01,,Correct,500,Vinyl
+1003,Accepted,OK Computer,JP,1997,,Correct,500,Cassette
+2001,Accepted,Unknown Pleasures,UK,1979-06-15,,Correct,600,LP
+2002,Accepted,Unknown Pleasures,US,1979,,Correct,600,CD
+3001,Accepted,Kid A,UK,2000-10-02,,Correct,700,CD
+4001,Accepted,Amnesiac,UK,2001-06-05,,Correct,,CD
+5001,Accepted,Unknown Album,US,2020-01-01,,Correct,800,CD
+5002,Accepted,Another Unknown,US,,,Correct,900,CD
+6001,Accepted,Homogenic,UK,Unknown,,Correct,1000,CD
+7001,Accepted,,US,2023,,Correct,1100,CD
+8001,Accepted,Sugar Hill,US,1979,,Correct,1200,LP
+9001,Accepted,Abbey Road,UK,1969-09-26,,Correct,1300,LP
+9002,Accepted,Bridge Over Troubled Water,US,1970,,Correct,1400,LP
+10001,Accepted,Some Random Album,US,2023-05-01,,Correct,1500,CD
+10002,Accepted,Obscure Release,DE,2022,,Correct,1600,CD
