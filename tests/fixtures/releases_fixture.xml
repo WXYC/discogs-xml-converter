@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <!-- Release 1001: OK Computer UK CD (3 tracks, 2 labels, 2 images, 1 extra artist) -->
+  <release id="1001" status="Accepted">
+    <title>OK Computer</title>
+    <country>UK</country>
+    <released>1997-06-16</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <extraartists>
+      <artist>
+        <id>12</id>
+        <name>Some Producer</name>
+        <anv></anv>
+        <join></join>
+        <role>Producer</role>
+      </artist>
+    </extraartists>
+    <labels>
+      <label name="Parlophone" catno="7243 8 55229 2 8" />
+      <label name="Capitol Records" catno="CDP 7243 8 55229 2 8" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Paranoid Android</title>
+        <duration>6:23</duration>
+      </track>
+      <track>
+        <position>3</position>
+        <title>Subterranean Homesick Alien</title>
+        <duration>4:27</duration>
+      </track>
+    </tracklist>
+    <images>
+      <image type="primary" width="600" height="600" uri="https://img.discogs.com/abc123/release-1001.jpg" />
+      <image type="secondary" width="300" height="300" uri="https://img.discogs.com/abc123/release-1001-back.jpg" />
+    </images>
+  </release>
+
+  <!-- Release 1002: OK Computer US Vinyl (5 tracks) -->
+  <release id="1002" status="Accepted">
+    <title>OK Computer</title>
+    <country>US</country>
+    <released>1997-07-01</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Capitol Records" catno="C1-55229" />
+    </labels>
+    <formats>
+      <format name="Vinyl" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+      <track>
+        <position>A2</position>
+        <title>Paranoid Android</title>
+        <duration>6:23</duration>
+      </track>
+      <track>
+        <position>A3</position>
+        <title>Subterranean Homesick Alien</title>
+        <duration>4:27</duration>
+      </track>
+      <track>
+        <position>B1</position>
+        <title>Exit Music (For a Film)</title>
+        <duration>4:24</duration>
+      </track>
+      <track>
+        <position>B2</position>
+        <title>Let Down</title>
+        <duration>4:59</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 1003: OK Computer JP Cassette (1 track) -->
+  <release id="1003" status="Accepted">
+    <title>OK Computer</title>
+    <country>JP</country>
+    <released>1997</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="EMI" catno="TOCP-50201" />
+    </labels>
+    <formats>
+      <format name="Cassette" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 2001: Unknown Pleasures UK LP (2 tracks) -->
+  <release id="2001" status="Accepted">
+    <title>Unknown Pleasures</title>
+    <country>UK</country>
+    <released>1979-06-15</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>600</master_id>
+    <artists>
+      <artist>
+        <id>2</id>
+        <name>Joy Division</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Factory Records" catno="FACT 10" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Disorder</title>
+        <duration>3:29</duration>
+      </track>
+      <track>
+        <position>A2</position>
+        <title>Day of the Lords</title>
+        <duration>4:48</duration>
+      </track>
+    </tracklist>
+    <images>
+      <image type="secondary" width="600" height="600" uri="https://img.discogs.com/def456/release-2001.jpg" />
+    </images>
+  </release>
+
+  <!-- Release 2002: Unknown Pleasures US CD (4 tracks) -->
+  <release id="2002" status="Accepted">
+    <title>Unknown Pleasures</title>
+    <country>US</country>
+    <released>1979</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>600</master_id>
+    <artists>
+      <artist>
+        <id>2</id>
+        <name>Joy Division</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Qwest Records" catno="1-25840" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Disorder</title>
+        <duration>3:29</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Day of the Lords</title>
+        <duration>4:48</duration>
+      </track>
+      <track>
+        <position>3</position>
+        <title>Candidate</title>
+        <duration>3:05</duration>
+      </track>
+      <track>
+        <position>4</position>
+        <title>Insight</title>
+        <duration>4:03</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 3001: Kid A (2 tracks) -->
+  <release id="3001" status="Accepted">
+    <title>Kid A</title>
+    <country>UK</country>
+    <released>2000-10-02</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>700</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Parlophone" catno="7243 5 27753 2 3" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Everything In Its Right Place</title>
+        <duration>4:11</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Kid A</title>
+        <duration>4:44</duration>
+      </track>
+    </tracklist>
+    <images>
+      <image type="primary" width="600" height="600" uri="https://img.discogs.com/ghi789/release-3001.jpg" />
+    </images>
+  </release>
+
+  <!-- Release 4001: Amnesiac, no master_id (2 tracks) -->
+  <release id="4001" status="Accepted">
+    <title>Amnesiac</title>
+    <country>UK</country>
+    <released>2001-06-05</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Parlophone" catno="7243 5 32764 2 8" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Packt Like Sardines in a Crushd Tin Box</title>
+        <duration>4:00</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Pyramid Song</title>
+        <duration>4:49</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 5001: Unknown Album (not in library) -->
+  <release id="5001" status="Accepted">
+    <title>Unknown Album</title>
+    <country>US</country>
+    <released>2020-01-01</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>800</master_id>
+    <artists>
+      <artist>
+        <id>3</id>
+        <name>DJ Unknown</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Unknown Label" catno="UNK-001" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Unknown Track</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 5002: Another Unknown (not in library, no released date) -->
+  <release id="5002" status="Accepted">
+    <title>Another Unknown</title>
+    <country>US</country>
+    <released></released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>900</master_id>
+    <artists>
+      <artist>
+        <id>4</id>
+        <name>Mystery Band</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Mystery Records" catno="MYS-002" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Mystery Track</title>
+        <duration>2:30</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 6001: Homogenic, Björk, bad date -->
+  <release id="6001" status="Accepted">
+    <title>Homogenic</title>
+    <country>UK</country>
+    <released>Unknown</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1000</master_id>
+    <artists>
+      <artist>
+        <id>5</id>
+        <name>Björk</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="One Little Indian" catno="TPLP 71 CD" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Hunter</title>
+        <duration>4:15</duration>
+      </track>
+      <track>
+        <position>2</position>
+        <title>Joga</title>
+        <duration>5:05</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 7001: Empty title (import_csv skips it) -->
+  <release id="7001" status="Accepted">
+    <title></title>
+    <country>US</country>
+    <released>2023</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1100</master_id>
+    <artists>
+      <artist>
+        <id>6</id>
+        <name>Empty Title Artist</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist />
+  </release>
+
+  <!-- Release 8001: Compilation (Various, track artists) -->
+  <release id="8001" status="Accepted">
+    <title>Sugar Hill</title>
+    <country>US</country>
+    <released>1979</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1200</master_id>
+    <artists>
+      <artist>
+        <id>7</id>
+        <name>Various</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Sugar Hill Records" catno="SH-542" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Rapper's Delight</title>
+        <duration>14:35</duration>
+        <artists>
+          <artist>
+            <id>100</id>
+            <name>Sugarhill Gang</name>
+          </artist>
+        </artists>
+      </track>
+      <track>
+        <position>A2</position>
+        <title>Apache</title>
+        <duration>5:35</duration>
+        <artists>
+          <artist>
+            <id>101</id>
+            <name>Incredible Bongo Band</name>
+          </artist>
+        </artists>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 9001: Abbey Road -->
+  <release id="9001" status="Accepted">
+    <title>Abbey Road</title>
+    <country>UK</country>
+    <released>1969-09-26</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1300</master_id>
+    <artists>
+      <artist>
+        <id>8</id>
+        <name>Beatles, The</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Apple Records" catno="PCS 7088" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Come Together</title>
+        <duration>4:20</duration>
+      </track>
+      <track>
+        <position>A2</position>
+        <title>Something</title>
+        <duration>3:03</duration>
+      </track>
+    </tracklist>
+    <images>
+      <image type="primary" width="600" height="600" uri="https://img.discogs.com/jkl012/release-9001.jpg" />
+    </images>
+  </release>
+
+  <!-- Release 9002: Bridge Over Troubled Water -->
+  <release id="9002" status="Accepted">
+    <title>Bridge Over Troubled Water</title>
+    <country>US</country>
+    <released>1970</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1400</master_id>
+    <artists>
+      <artist>
+        <id>9</id>
+        <name>Simon &amp; Garfunkel</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Columbia" catno="KCS 9914" />
+    </labels>
+    <formats>
+      <format name="LP" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Bridge Over Troubled Water</title>
+        <duration>4:52</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 10001: Not in library -->
+  <release id="10001" status="Accepted">
+    <title>Some Random Album</title>
+    <country>US</country>
+    <released>2023-05-01</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1500</master_id>
+    <artists>
+      <artist>
+        <id>10</id>
+        <name>Random Artist X</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Random Label" catno="RL-001" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Random Track</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>
+
+  <!-- Release 10002: Not in library -->
+  <release id="10002" status="Accepted">
+    <title>Obscure Release</title>
+    <country>DE</country>
+    <released>2022</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>1600</master_id>
+    <artists>
+      <artist>
+        <id>11</id>
+        <name>Obscure Band Y</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Obscure Label" catno="OL-002" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Obscure Track</title>
+        <duration>4:00</duration>
+      </track>
+    </tracklist>
+  </release>
+</releases>
