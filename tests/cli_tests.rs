@@ -134,3 +134,143 @@ fn test_gzipped_input() {
     let count = rdr.records().count();
     assert_eq!(count, 16);
 }
+
+#[test]
+fn test_directory_input() {
+    // Create a temp directory with symlinks to fixture XML files
+    let input_dir = tempfile::tempdir().unwrap();
+    let output_dir = tempfile::tempdir().unwrap();
+
+    // Copy fixture files to simulate a directory of XML dumps
+    std::fs::copy(
+        fixture_path("releases_fixture.xml"),
+        input_dir.path().join("releases.xml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        fixture_path("artists_fixture.xml"),
+        input_dir.path().join("artists.xml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        fixture_path("labels_fixture.xml"),
+        input_dir.path().join("labels.xml"),
+    )
+    .unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .arg(input_dir.path().to_str().unwrap())
+        .arg("--output-dir")
+        .arg(output_dir.path().to_str().unwrap())
+        .assert()
+        .success();
+
+    // Check release CSV files exist (same as single file mode)
+    assert!(output_dir.path().join("release.csv").exists());
+    assert!(output_dir.path().join("release_artist.csv").exists());
+
+    // Check artist and label CSV files exist
+    assert!(
+        output_dir.path().join("artist_alias.csv").exists(),
+        "artist_alias.csv should be created"
+    );
+    assert!(
+        output_dir.path().join("artist_member.csv").exists(),
+        "artist_member.csv should be created"
+    );
+    assert!(
+        output_dir.path().join("label_hierarchy.csv").exists(),
+        "label_hierarchy.csv should be created"
+    );
+
+    // Check content of label_hierarchy.csv
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("label_hierarchy.csv")).unwrap();
+    let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+    // 4 labels have parents: Parlophone->EMI, Capitol Records->EMI,
+    // Matador Records->Beggars Group, 4AD->Beggars Group
+    assert_eq!(records.len(), 4, "Expected 4 label hierarchy entries");
+
+    // Check releases were processed
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(count, 16, "Expected 16 releases (no filter)");
+}
+
+#[test]
+fn test_directory_input_with_alias_filtering() {
+    // Test that alias-enhanced filtering works end-to-end.
+    // The releases_fixture.xml has a release credited to "Beatles, The" (id 8).
+    // The library_artists.txt has "The Beatles".
+    // Without aliases, "Beatles, The" != "The Beatles" (no match).
+    // We'll create an artists.xml that maps artist_id 8 to alias "The Beatles".
+    let input_dir = tempfile::tempdir().unwrap();
+    let output_dir = tempfile::tempdir().unwrap();
+
+    // Copy releases fixture
+    std::fs::copy(
+        fixture_path("releases_fixture.xml"),
+        input_dir.path().join("releases.xml"),
+    )
+    .unwrap();
+
+    // Create a custom artists.xml that maps artist_id 8 to alias "The Beatles"
+    let artists_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<artists>
+  <artist>
+    <id>8</id>
+    <name>Beatles, The</name>
+    <namevariations>
+      <name>The Beatles</name>
+    </namevariations>
+  </artist>
+</artists>
+"#;
+    std::fs::write(input_dir.path().join("artists.xml"), artists_xml).unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .arg(input_dir.path().to_str().unwrap())
+        .arg("--output-dir")
+        .arg(output_dir.path().to_str().unwrap())
+        .arg("--library-artists")
+        .arg(fixture_path("library_artists.txt").to_str().unwrap())
+        .assert()
+        .success();
+
+    // Without alias: 9 matches. With alias: "Beatles, The" now matches via
+    // alias "The Beatles" -> should be 10.
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(
+        count, 10,
+        "Expected 10 filtered releases (9 canonical + 1 via alias)"
+    );
+}
+
+#[test]
+fn test_single_file_backward_compatible() {
+    // Verify single file mode still works identically
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
+        .arg("--output-dir")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--library-artists")
+        .arg(fixture_path("library_artists.txt").to_str().unwrap())
+        .assert()
+        .success();
+
+    // Same result as before: 9 filtered releases
+    let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(count, 9, "Single file mode should produce same results as before");
+
+    // artist_alias.csv should NOT exist in single file mode
+    assert!(
+        !dir.path().join("artist_alias.csv").exists(),
+        "artist_alias.csv should not be created in single file mode"
+    );
+}

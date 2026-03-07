@@ -4,7 +4,7 @@
 //! removal, matching the behavior of `filter_csv.py:normalize_artist()` in
 //! the discogs-cache repo.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -90,9 +90,14 @@ fn unicode_general_category(c: char) -> GeneralCategory {
     GeneralCategory::Other
 }
 
-/// Artist filter backed by a normalized HashSet.
+/// Artist filter backed by a normalized HashSet, with optional alias support.
+///
+/// When aliases are loaded (from `artist_alias.csv`), the filter checks both
+/// canonical artist names and their aliases/name-variations by artist_id.
 pub struct ArtistFilter {
     artists: HashSet<String>,
+    /// artist_id -> set of normalized alias names (includes name variations)
+    aliases: HashMap<u64, Vec<String>>,
 }
 
 impl ArtistFilter {
@@ -105,7 +110,37 @@ impl ArtistFilter {
             .filter(|line| !line.is_empty())
             .map(normalize_artist)
             .collect();
-        Ok(ArtistFilter { artists })
+        Ok(ArtistFilter {
+            artists,
+            aliases: HashMap::new(),
+        })
+    }
+
+    /// Load artist aliases from `artist_alias.csv`.
+    ///
+    /// Builds a lookup from artist_id to normalized alias names. When combined
+    /// with `matches_any_with_ids()`, this enables matching releases where the
+    /// credited artist is known by a different name in the library.
+    pub fn load_aliases(&mut self, csv_path: &Path) -> anyhow::Result<usize> {
+        let mut rdr = csv::Reader::from_path(csv_path)?;
+        let mut count = 0;
+
+        for result in rdr.records() {
+            let record = result?;
+            let artist_id: u64 = record[0].parse().unwrap_or(0);
+            let alias_name = &record[2]; // alias_name column
+
+            let normalized = normalize_artist(alias_name);
+            if !normalized.is_empty() {
+                self.aliases
+                    .entry(artist_id)
+                    .or_default()
+                    .push(normalized);
+                count += 1;
+            }
+        }
+
+        Ok(count)
     }
 
     /// Check if any of the given artist names match the filter.
@@ -116,6 +151,35 @@ impl ArtistFilter {
         names
             .into_iter()
             .any(|name| self.artists.contains(&normalize_artist(name)))
+    }
+
+    /// Check if any artist matches by canonical name or by alias lookup.
+    ///
+    /// For each (artist_id, name) pair:
+    /// 1. Check the canonical name against the library set
+    /// 2. Look up aliases by artist_id and check each against the library set
+    pub fn matches_any_with_ids(&self, artists: &[(u64, &str)]) -> bool {
+        for (artist_id, name) in artists {
+            // Check canonical name
+            if self.artists.contains(&normalize_artist(name)) {
+                return true;
+            }
+
+            // Check aliases by artist_id
+            if let Some(alias_names) = self.aliases.get(artist_id) {
+                for alias in alias_names {
+                    if self.artists.contains(alias) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Whether alias data has been loaded.
+    pub fn has_aliases(&self) -> bool {
+        !self.aliases.is_empty()
     }
 
     /// Number of artists in the filter set.
@@ -215,5 +279,51 @@ mod tests {
         assert!(filter.matches_any(["Unknown", "Radiohead"].iter().copied()));
         // No match
         assert!(!filter.matches_any(["Unknown", "Other"].iter().copied()));
+    }
+
+    #[test]
+    fn test_load_aliases_and_match() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Library has "Puff Daddy"
+        let lib_path = dir.path().join("artists.txt");
+        fs::write(&lib_path, "Puff Daddy\n").unwrap();
+
+        // artist_alias.csv: artist 123 has alias "Puff Daddy"
+        let alias_path = dir.path().join("artist_alias.csv");
+        fs::write(
+            &alias_path,
+            "artist_id,artist_name,alias_name\n\
+             123,P. Diddy,P Diddy\n\
+             123,P. Diddy,Puff Daddy\n\
+             123,P. Diddy,Sean Combs\n\
+             123,P. Diddy,Diddy\n",
+        )
+        .unwrap();
+
+        let mut filter = ArtistFilter::from_file(&lib_path).unwrap();
+        let count = filter.load_aliases(&alias_path).unwrap();
+        assert_eq!(count, 4);
+        assert!(filter.has_aliases());
+
+        // "P. Diddy" doesn't match directly, but alias lookup finds "Puff Daddy"
+        assert!(!filter.matches_any(["P. Diddy"].iter().copied()));
+        assert!(filter.matches_any_with_ids(&[(123, "P. Diddy")]));
+
+        // Unknown artist doesn't match
+        assert!(!filter.matches_any_with_ids(&[(999, "Unknown")]));
+    }
+
+    #[test]
+    fn test_matches_any_with_ids_canonical_name_still_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_path = dir.path().join("artists.txt");
+        fs::write(&lib_path, "Radiohead\n").unwrap();
+
+        let filter = ArtistFilter::from_file(&lib_path).unwrap();
+
+        // Even without aliases, canonical name matching works
+        assert!(filter.matches_any_with_ids(&[(300, "Radiohead")]));
+        assert!(!filter.matches_any_with_ids(&[(300, "Unknown")]));
     }
 }
