@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<labels>
+  <label>
+    <id>1</id>
+    <name>EMI</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <sublabels>
+      <label id="2">Parlophone</label>
+      <label id="3">Capitol Records</label>
+    </sublabels>
+  </label>
+  <label>
+    <id>2</id>
+    <name>Parlophone</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <parentLabel id="1">EMI</parentLabel>
+  </label>
+  <label>
+    <id>3</id>
+    <name>Capitol Records</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <parentLabel id="1">EMI</parentLabel>
+  </label>
+  <label>
+    <id>4</id>
+    <name>Sub Pop</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+  </label>
+  <label>
+    <id>5</id>
+    <name>Drag City</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+  </label>
+  <label>
+    <id>6</id>
+    <name>Matador Records</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <parentLabel id="7">Beggars Group</parentLabel>
+  </label>
+  <label>
+    <id>7</id>
+    <name>Beggars Group</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <sublabels>
+      <label id="6">Matador Records</label>
+      <label id="8">4AD</label>
+    </sublabels>
+  </label>
+  <label>
+    <id>8</id>
+    <name>4AD</name>
+    <contactinfo></contactinfo>
+    <profile></profile>
+    <data_quality>Correct</data_quality>
+    <parentLabel id="7">Beggars Group</parentLabel>
+  </label>
+</labels>
