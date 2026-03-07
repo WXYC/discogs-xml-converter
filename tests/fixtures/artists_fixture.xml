@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<artists>
+  <artist>
+    <id>123</id>
+    <name>P. Diddy</name>
+    <realname>Sean John Combs</realname>
+    <namevariations>
+      <name>P Diddy</name>
+      <name>Puff Daddy</name>
+    </namevariations>
+    <aliases>
+      <name id="456">Sean Combs</name>
+      <name id="789">Diddy</name>
+    </aliases>
+    <members>
+      <name id="1001">Member One</name>
+    </members>
+  </artist>
+  <artist>
+    <id>200</id>
+    <name>Björk</name>
+    <realname>Björk Guðmundsdóttir</realname>
+    <namevariations>
+      <name>Bjork</name>
+      <name>Björk Guðmundsdóttir</name>
+    </namevariations>
+    <aliases>
+    </aliases>
+    <members>
+    </members>
+  </artist>
+  <artist>
+    <id>300</id>
+    <name>Radiohead</name>
+    <realname></realname>
+    <namevariations>
+      <name>Radio Head</name>
+    </namevariations>
+    <aliases>
+    </aliases>
+    <members>
+      <name id="301">Thom Yorke</name>
+      <name id="302">Jonny Greenwood</name>
+      <name id="303">Colin Greenwood</name>
+      <name id="304">Ed O'Brien</name>
+      <name id="305">Philip Selway</name>
+    </members>
+  </artist>
+  <artist>
+    <id>400</id>
+    <name>Cat Power</name>
+    <realname>Charlyn Marie Marshall</realname>
+    <namevariations>
+      <name>Chan Marshall</name>
+    </namevariations>
+    <aliases>
+    </aliases>
+    <members>
+    </members>
+  </artist>
+  <artist>
+    <id>500</id>
+    <name>Artist Without Extras</name>
+    <realname></realname>
+  </artist>
+</artists>
