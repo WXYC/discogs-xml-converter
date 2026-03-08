@@ -112,11 +112,21 @@ mod tests {
         drop(output);
 
         let mut rdr = csv::Reader::from_path(dir.path().join("artist_alias.csv")).unwrap();
-        let headers: Vec<String> = rdr.headers().unwrap().iter().map(|s| s.to_string()).collect();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(headers, vec!["artist_id", "artist_name", "alias_name"]);
 
         let mut rdr = csv::Reader::from_path(dir.path().join("artist_member.csv")).unwrap();
-        let headers: Vec<String> = rdr.headers().unwrap().iter().map(|s| s.to_string()).collect();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(
             headers,
             vec![

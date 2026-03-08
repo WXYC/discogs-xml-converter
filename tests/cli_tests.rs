@@ -266,7 +266,10 @@ fn test_single_file_backward_compatible() {
     // Same result as before: 9 filtered releases
     let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
-    assert_eq!(count, 9, "Single file mode should produce same results as before");
+    assert_eq!(
+        count, 9,
+        "Single file mode should produce same results as before"
+    );
 
     // artist_alias.csv should NOT exist in single file mode
     assert!(

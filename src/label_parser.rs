@@ -59,7 +59,7 @@ where
                 callback(label);
                 count += 1;
 
-                if count % 100_000 == 0 {
+                if count.is_multiple_of(100_000) {
                     info!("Parsed {} labels...", count);
                 }
             }
@@ -81,10 +81,7 @@ where
 }
 
 /// Parse the body of a `<label>` element.
-fn parse_label_body<R: BufRead>(
-    reader: &mut Reader<R>,
-    buf: &mut Vec<u8>,
-) -> Result<Label> {
+fn parse_label_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Result<Label> {
     let mut label = Label::default();
     let mut current_text = String::new();
     let mut in_sublabels = false;

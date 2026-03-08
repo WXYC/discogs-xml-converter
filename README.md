@@ -50,6 +50,16 @@ Produces 6 CSV files:
 
 These are consumed by `discogs-cache/scripts/import_csv.py` using `csv.DictReader`.
 
+## Performance
+
+Release processing is parallelized across all CPU cores:
+
+1. A **scanner thread** reads the XML input and finds `<release>` element boundaries by byte scanning
+2. A **rayon worker pool** parses XML and performs NFKD artist name normalization in parallel
+3. The **main thread** writes matched releases to CSV sequentially, preserving document order
+
+Artist and label XML files are also processed in parallel when both are present in directory mode.
+
 ## Building
 
 ```bash

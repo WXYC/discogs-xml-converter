@@ -132,10 +132,7 @@ impl ArtistFilter {
 
             let normalized = normalize_artist(alias_name);
             if !normalized.is_empty() {
-                self.aliases
-                    .entry(artist_id)
-                    .or_default()
-                    .push(normalized);
+                self.aliases.entry(artist_id).or_default().push(normalized);
                 count += 1;
             }
         }
