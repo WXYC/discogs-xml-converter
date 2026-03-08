@@ -15,6 +15,51 @@ use quick_xml::Reader;
 
 use crate::model::*;
 
+/// Extract `id` and `status` attributes from a `<release>` start tag.
+fn extract_release_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<(u64, String)> {
+    let mut id: u64 = 0;
+    let mut status = String::new();
+    for attr in e.attributes() {
+        let attr = attr?;
+        match attr.key.as_ref() {
+            b"id" => {
+                let val = attr.unescape_value()?;
+                id = val.parse().unwrap_or(0);
+            }
+            b"status" => {
+                status = attr.unescape_value()?.to_string();
+            }
+            _ => {}
+        }
+    }
+    Ok((id, status))
+}
+
+/// Parse a single release from a byte slice containing `<release>...</release>`.
+///
+/// Used by the parallel release processing pipeline to parse individual
+/// release elements that have been partitioned from the input stream.
+pub fn parse_release_from_bytes(bytes: &[u8]) -> Result<Release> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut reader = Reader::from_reader(BufReader::new(cursor));
+    reader.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name().as_ref() == b"release" => {
+                let (id, status) = extract_release_attrs(e)?;
+                let mut inner_buf = Vec::new();
+                return parse_release_body(&mut reader, id, status, &mut inner_buf);
+            }
+            Ok(Event::Eof) => return Err(anyhow::anyhow!("No <release> found in bytes")),
+            Err(e) => return Err(anyhow::anyhow!("XML parse error: {}", e)),
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
 /// Parse releases from an XML file (plain or gzipped).
 ///
 /// Detects gzip by `.gz` extension. Yields releases via the callback.
@@ -66,23 +111,7 @@ where
     loop {
         match xml_reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) if e.name().as_ref() == b"release" => {
-                // Extract attributes before releasing the borrow on buf
-                let mut id: u64 = 0;
-                let mut status = String::new();
-                for attr in e.attributes() {
-                    let attr = attr?;
-                    match attr.key.as_ref() {
-                        b"id" => {
-                            let val = attr.unescape_value()?;
-                            id = val.parse().unwrap_or(0);
-                        }
-                        b"status" => {
-                            status = attr.unescape_value()?.to_string();
-                        }
-                        _ => {}
-                    }
-                }
-
+                let (id, status) = extract_release_attrs(e)?;
                 let release = parse_release_body(&mut xml_reader, id, status, &mut inner_buf)?;
                 total_seen += 1;
 
@@ -578,6 +607,61 @@ mod tests {
             assert_eq!(gz.id, plain.id);
             assert_eq!(gz.title, plain.title);
         }
+    }
+
+    #[test]
+    fn test_parse_release_from_bytes() {
+        let xml = br#"<release id="1001" status="Accepted">
+    <title>OK Computer</title>
+    <country>UK</country>
+    <released>1997-06-16</released>
+    <notes></notes>
+    <data_quality>Correct</data_quality>
+    <master_id>500</master_id>
+    <artists>
+      <artist>
+        <id>1</id>
+        <name>Radiohead</name>
+        <anv></anv>
+        <join></join>
+      </artist>
+    </artists>
+    <labels>
+      <label name="Parlophone" catno="7243 8 55229 2 8" />
+    </labels>
+    <formats>
+      <format name="CD" qty="1" text="" />
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Airbag</title>
+        <duration>4:44</duration>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.id, 1001);
+        assert_eq!(release.status, "Accepted");
+        assert_eq!(release.title, "OK Computer");
+        assert_eq!(release.country, "UK");
+        assert_eq!(release.released, "1997-06-16");
+        assert_eq!(release.master_id, Some(500));
+        assert_eq!(release.artists.len(), 1);
+        assert_eq!(release.artists[0].name, "Radiohead");
+        assert_eq!(release.artists[0].artist_id, 1);
+        assert_eq!(release.labels.len(), 1);
+        assert_eq!(release.labels[0].name, "Parlophone");
+        assert_eq!(release.tracks.len(), 1);
+        assert_eq!(release.tracks[0].title, "Airbag");
+    }
+
+    #[test]
+    fn test_parse_release_from_bytes_no_release_tag() {
+        let xml = b"<notrelease></notrelease>";
+        let result = parse_release_from_bytes(xml);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -58,7 +58,7 @@ where
                 callback(artist);
                 count += 1;
 
-                if count % 100_000 == 0 {
+                if count.is_multiple_of(100_000) {
                     info!("Parsed {} artists...", count);
                 }
             }
@@ -80,10 +80,7 @@ where
 }
 
 /// Parse the body of an `<artist>` element.
-fn parse_artist_body<R: BufRead>(
-    reader: &mut Reader<R>,
-    buf: &mut Vec<u8>,
-) -> Result<Artist> {
+fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Result<Artist> {
     let mut artist = Artist::default();
     let mut current_text = String::new();
 

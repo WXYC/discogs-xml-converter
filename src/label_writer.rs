@@ -75,7 +75,12 @@ mod tests {
         drop(output);
 
         let mut rdr = csv::Reader::from_path(dir.path().join("label_hierarchy.csv")).unwrap();
-        let headers: Vec<String> = rdr.headers().unwrap().iter().map(|s| s.to_string()).collect();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(
             headers,
             vec![
@@ -126,6 +131,10 @@ mod tests {
 
         let mut rdr = csv::Reader::from_path(dir.path().join("label_hierarchy.csv")).unwrap();
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
-        assert_eq!(records.len(), 0, "Labels without parents should not be written");
+        assert_eq!(
+            records.len(),
+            0,
+            "Labels without parents should not be written"
+        );
     }
 }
