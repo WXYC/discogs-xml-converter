@@ -327,15 +327,11 @@ fn scan_and_batch_releases(
 const RELEASE_START: &[u8] = b"<release ";
 const RELEASE_END: &[u8] = b"</release>";
 
-/// Find `needle` in `haystack`, returning the byte offset of the start.
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
 /// Scan a reader for release element boundaries and batch them.
 ///
 /// Reads the input into a buffer, scans for `<release `...`</release>` byte
 /// boundaries, and sends complete releases as batches via the channel.
+/// Uses SIMD-accelerated search via `memchr::memmem`.
 fn scan_reader<R: Read>(
     reader: R,
     limit: Option<usize>,
@@ -345,6 +341,9 @@ fn scan_reader<R: Read>(
 ) -> Result<usize> {
     let mut reader = BufReader::new(reader);
     let mut count: usize = 0;
+
+    let start_finder = memchr::memmem::Finder::new(RELEASE_START);
+    let end_finder = memchr::memmem::Finder::new(RELEASE_END);
 
     // Buffer of unprocessed bytes (may span multiple read calls)
     let mut unprocessed: Vec<u8> = Vec::new();
@@ -369,7 +368,7 @@ fn scan_reader<R: Read>(
         // Extract complete releases from unprocessed buffer
         loop {
             // Find next <release  start
-            let start_offset = match find_bytes(&unprocessed, RELEASE_START) {
+            let start_offset = match start_finder.find(&unprocessed) {
                 Some(offset) => offset,
                 None => {
                     // No start tag found. Discard bytes before the last
@@ -386,7 +385,7 @@ fn scan_reader<R: Read>(
 
             // Find </release> after the start
             let search_from = start_offset + RELEASE_START.len();
-            let end_offset = match find_bytes(&unprocessed[search_from..], RELEASE_END) {
+            let end_offset = match end_finder.find(&unprocessed[search_from..]) {
                 Some(offset) => search_from + offset,
                 None => {
                     // End tag not yet found; discard bytes before the start
