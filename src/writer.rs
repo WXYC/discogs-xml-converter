@@ -94,10 +94,14 @@ impl CsvOutput {
 
     /// Write a release and all its child records to the 6 CSV files.
     pub fn write_release(&mut self, release: &Release) -> Result<()> {
-        let id_str = release.id.to_string();
+        let mut ibuf = itoa::Buffer::new();
+        let id_str = ibuf.format(release.id).to_string();
         let master_id_str = release
             .master_id
-            .map(|id| id.to_string())
+            .map(|id| {
+                let mut b = itoa::Buffer::new();
+                b.format(id).to_string()
+            })
             .unwrap_or_default();
 
         // release.csv
@@ -115,26 +119,34 @@ impl CsvOutput {
 
         // release_artist.csv - main artists (extra=0)
         for artist in &release.artists {
+            let mut b = itoa::Buffer::new();
+            let artist_id_str = b.format(artist.artist_id).to_string();
+            let mut b2 = itoa::Buffer::new();
+            let position_str = b2.format(artist.position).to_string();
             self.release_artist.write_record([
                 &id_str,
-                &artist.artist_id.to_string(),
+                &artist_id_str,
                 &artist.name,
                 "0",
                 &artist.anv,
-                &artist.position.to_string(),
+                &position_str,
                 &artist.join_field,
             ])?;
         }
 
         // release_artist.csv - extra artists (extra=1)
         for artist in &release.extra_artists {
+            let mut b = itoa::Buffer::new();
+            let artist_id_str = b.format(artist.artist_id).to_string();
+            let mut b2 = itoa::Buffer::new();
+            let position_str = b2.format(artist.position).to_string();
             self.release_artist.write_record([
                 &id_str,
-                &artist.artist_id.to_string(),
+                &artist_id_str,
                 &artist.name,
                 "1",
                 &artist.anv,
-                &artist.position.to_string(),
+                &position_str,
                 &artist.join_field,
             ])?;
         }
@@ -147,7 +159,8 @@ impl CsvOutput {
 
         // release_track.csv and release_track_artist.csv
         for (idx, track) in release.tracks.iter().enumerate() {
-            let sequence = (idx + 1).to_string();
+            let mut b = itoa::Buffer::new();
+            let sequence = b.format(idx + 1).to_string();
 
             self.release_track.write_record([
                 &id_str,
@@ -170,11 +183,15 @@ impl CsvOutput {
 
         // release_image.csv
         for image in &release.images {
+            let mut bw = itoa::Buffer::new();
+            let width_str = bw.format(image.width).to_string();
+            let mut bh = itoa::Buffer::new();
+            let height_str = bh.format(image.height).to_string();
             self.release_image.write_record([
                 &id_str,
                 &image.image_type,
-                &image.width.to_string(),
-                &image.height.to_string(),
+                &width_str,
+                &height_str,
                 &image.uri,
             ])?;
         }

@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use anyhow::{Context, Result};
+use itoa;
 use log::info;
 
 use crate::model::Release;
@@ -80,6 +81,47 @@ pub fn copy_line(values: &[Option<&str>]) -> String {
     }
     line.push('\n');
     line
+}
+
+/// Escape a string for PostgreSQL COPY TEXT format, appending directly to a byte buffer.
+///
+/// This is the zero-allocation counterpart of `escape_copy_text()`. Instead of
+/// returning a new `String`, it pushes escaped bytes directly into `buf`.
+pub fn escape_copy_text_into(buf: &mut Vec<u8>, s: &str) {
+    for &b in s.as_bytes() {
+        match b {
+            b'\\' => buf.extend_from_slice(b"\\\\"),
+            b'\n' => buf.extend_from_slice(b"\\n"),
+            b'\r' => buf.extend_from_slice(b"\\r"),
+            b'\t' => buf.extend_from_slice(b"\\t"),
+            _ => buf.push(b),
+        }
+    }
+}
+
+/// Write a COPY TEXT row directly into a byte buffer.
+///
+/// This is the zero-allocation counterpart of `copy_line()`. Values are
+/// tab-separated; `None` and empty strings become `\N` (PostgreSQL NULL).
+pub fn write_copy_row(buf: &mut Vec<u8>, values: &[Option<&str>]) {
+    for (i, val) in values.iter().enumerate() {
+        if i > 0 {
+            buf.push(b'\t');
+        }
+        match val {
+            None | Some("") => buf.extend_from_slice(b"\\N"),
+            Some(s) => escape_copy_text_into(buf, s),
+        }
+    }
+    buf.push(b'\n');
+}
+
+/// Write an integer as a COPY TEXT column value directly into a byte buffer.
+///
+/// Uses `itoa` for zero-allocation integer formatting.
+fn write_copy_int(buf: &mut Vec<u8>, n: impl itoa::Integer) {
+    let mut itoa_buf = itoa::Buffer::new();
+    buf.extend_from_slice(itoa_buf.format(n).as_bytes());
 }
 
 /// Pick the best artwork URL from a release's images.
@@ -226,19 +268,30 @@ impl ReleaseOutput for PgOutput {
             return Ok(());
         }
 
-        let id_str = release.id.to_string();
-        let year_str = extract_year(&release.released).map(|y| y.to_string());
-        let master_id_str = release.master_id.map(|id| id.to_string());
-
         // release row: id, title, release_year, country, master_id
-        let line = copy_line(&[
-            Some(&id_str),
-            Some(&release.title),
-            year_str.as_deref(),
-            empty_to_none(&release.country),
-            master_id_str.as_deref(),
-        ]);
-        self.buf_release.extend_from_slice(line.as_bytes());
+        {
+            let buf = &mut self.buf_release;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &release.title);
+            buf.push(b'\t');
+            match extract_year(&release.released) {
+                Some(y) => write_copy_int(buf, y),
+                None => buf.extend_from_slice(b"\\N"),
+            }
+            buf.push(b'\t');
+            if release.country.is_empty() {
+                buf.extend_from_slice(b"\\N");
+            } else {
+                escape_copy_text_into(buf, &release.country);
+            }
+            buf.push(b'\t');
+            match release.master_id {
+                Some(id) => write_copy_int(buf, id),
+                None => buf.extend_from_slice(b"\\N"),
+            }
+            buf.push(b'\n');
+        }
 
         // release_artist rows (main artists, extra=0)
         for artist in &release.artists {
@@ -248,14 +301,13 @@ impl ReleaseOutput for PgOutput {
             if !self.artist_dedup.insert(release.id, &artist.name) {
                 continue;
             }
-            let artist_id_str = artist.artist_id.to_string();
-            let line = copy_line(&[
-                Some(&id_str),
-                Some(&artist_id_str),
-                Some(&artist.name),
-                Some("0"),
-            ]);
-            self.buf_release_artist.extend_from_slice(line.as_bytes());
+            let buf = &mut self.buf_release_artist;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            write_copy_int(buf, artist.artist_id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &artist.name);
+            buf.extend_from_slice(b"\t0\n");
         }
 
         // release_artist rows (extra artists, extra=1)
@@ -266,14 +318,13 @@ impl ReleaseOutput for PgOutput {
             if !self.artist_dedup.insert(release.id, &artist.name) {
                 continue;
             }
-            let artist_id_str = artist.artist_id.to_string();
-            let line = copy_line(&[
-                Some(&id_str),
-                Some(&artist_id_str),
-                Some(&artist.name),
-                Some("1"),
-            ]);
-            self.buf_release_artist.extend_from_slice(line.as_bytes());
+            let buf = &mut self.buf_release_artist;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            write_copy_int(buf, artist.artist_id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &artist.name);
+            buf.extend_from_slice(b"\t1\n");
         }
 
         // release_label rows (release_id, label_name only -- catno is not in the DB)
@@ -284,8 +335,11 @@ impl ReleaseOutput for PgOutput {
             if !self.label_dedup.insert(release.id, &label.name) {
                 continue;
             }
-            let line = copy_line(&[Some(&id_str), Some(&label.name)]);
-            self.buf_release_label.extend_from_slice(line.as_bytes());
+            let buf = &mut self.buf_release_label;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &label.name);
+            buf.push(b'\n');
         }
 
         // release_track rows + track count
@@ -300,15 +354,29 @@ impl ReleaseOutput for PgOutput {
                 continue;
             }
             let seq = (idx + 1) as u32;
-            let seq_str = seq.to_string();
-            let line = copy_line(&[
-                Some(&id_str),
-                Some(&seq_str),
-                empty_to_none(&track.position),
-                Some(&track.title),
-                empty_to_none(&track.duration),
-            ]);
-            self.buf_release_track.extend_from_slice(line.as_bytes());
+
+            // Write track row directly
+            {
+                let buf = &mut self.buf_release_track;
+                write_copy_int(buf, release.id);
+                buf.push(b'\t');
+                write_copy_int(buf, seq);
+                buf.push(b'\t');
+                if track.position.is_empty() {
+                    buf.extend_from_slice(b"\\N");
+                } else {
+                    escape_copy_text_into(buf, &track.position);
+                }
+                buf.push(b'\t');
+                escape_copy_text_into(buf, &track.title);
+                buf.push(b'\t');
+                if track.duration.is_empty() {
+                    buf.extend_from_slice(b"\\N");
+                } else {
+                    escape_copy_text_into(buf, &track.duration);
+                }
+                buf.push(b'\n');
+            }
 
             // Track artists (both main and extra)
             for artist in track.artists.iter().chain(track.extra_artists.iter()) {
@@ -318,9 +386,13 @@ impl ReleaseOutput for PgOutput {
                 {
                     continue;
                 }
-                let line = copy_line(&[Some(&id_str), Some(&seq_str), Some(&artist.name)]);
-                self.buf_release_track_artist
-                    .extend_from_slice(line.as_bytes());
+                let buf = &mut self.buf_release_track_artist;
+                write_copy_int(buf, release.id);
+                buf.push(b'\t');
+                write_copy_int(buf, seq);
+                buf.push(b'\t');
+                escape_copy_text_into(buf, &artist.name);
+                buf.push(b'\n');
             }
         }
 
@@ -405,9 +477,14 @@ impl ReleaseOutput for PgOutput {
                 let mut writer = self
                     .client
                     .copy_in("COPY _artwork (release_id, artwork_url) FROM STDIN")?;
+                let mut buf = Vec::new();
                 for (release_id, url) in &self.artwork {
-                    let line = copy_line(&[Some(&release_id.to_string()), Some(url)]);
-                    writer.write_all(line.as_bytes())?;
+                    buf.clear();
+                    write_copy_int(&mut buf, *release_id);
+                    buf.push(b'\t');
+                    escape_copy_text_into(&mut buf, url);
+                    buf.push(b'\n');
+                    writer.write_all(&buf)?;
                 }
                 writer.finish()?;
             }
@@ -434,9 +511,14 @@ impl ReleaseOutput for PgOutput {
             let mut writer = self
                 .client
                 .copy_in("COPY release_track_count (release_id, track_count) FROM STDIN")?;
+            let mut buf = Vec::new();
             for (release_id, count) in &self.track_counts {
-                let line = copy_line(&[Some(&release_id.to_string()), Some(&count.to_string())]);
-                writer.write_all(line.as_bytes())?;
+                buf.clear();
+                write_copy_int(&mut buf, *release_id);
+                buf.push(b'\t');
+                write_copy_int(&mut buf, *count);
+                buf.push(b'\n');
+                writer.write_all(&buf)?;
             }
             writer.finish()?;
         }
@@ -560,6 +642,114 @@ mod tests {
     fn test_copy_line_with_special_chars() {
         let line = copy_line(&[Some("1"), Some("Title with\ttab"), Some("Note\nline2")]);
         assert_eq!(line, "1\tTitle with\\ttab\tNote\\nline2\n");
+    }
+
+    // -- escape_copy_text_into tests --
+
+    #[test]
+    fn test_escape_copy_text_into_plain() {
+        let mut buf = Vec::new();
+        escape_copy_text_into(&mut buf, "hello world");
+        assert_eq!(buf, b"hello world");
+    }
+
+    #[test]
+    fn test_escape_copy_text_into_special_chars() {
+        let mut buf = Vec::new();
+        escape_copy_text_into(&mut buf, "line1\nline2\ttab\\slash\rret");
+        assert_eq!(buf, b"line1\\nline2\\ttab\\\\slash\\rret");
+    }
+
+    #[test]
+    fn test_escape_copy_text_into_matches_escape_copy_text() {
+        let cases = ["hello", "a\tb", "a\nb", "a\\b", "a\rb", "mix\t\n\\end"];
+        for s in &cases {
+            let mut buf = Vec::new();
+            escape_copy_text_into(&mut buf, s);
+            assert_eq!(
+                String::from_utf8(buf).unwrap(),
+                escape_copy_text(s),
+                "Mismatch for input: {:?}",
+                s,
+            );
+        }
+    }
+
+    // -- write_copy_row tests --
+
+    #[test]
+    fn test_write_copy_row_all_values() {
+        let mut buf = Vec::new();
+        write_copy_row(&mut buf, &[Some("1001"), Some("Test Title"), Some("US")]);
+        assert_eq!(buf, b"1001\tTest Title\tUS\n");
+    }
+
+    #[test]
+    fn test_write_copy_row_with_nulls() {
+        let mut buf = Vec::new();
+        write_copy_row(&mut buf, &[Some("1001"), None, Some("US")]);
+        assert_eq!(buf, b"1001\t\\N\tUS\n");
+    }
+
+    #[test]
+    fn test_write_copy_row_empty_string_becomes_null() {
+        let mut buf = Vec::new();
+        write_copy_row(&mut buf, &[Some("1001"), Some(""), Some("US")]);
+        assert_eq!(buf, b"1001\t\\N\tUS\n");
+    }
+
+    #[test]
+    fn test_write_copy_row_with_special_chars() {
+        let mut buf = Vec::new();
+        write_copy_row(
+            &mut buf,
+            &[Some("1"), Some("Title with\ttab"), Some("Note\nline2")],
+        );
+        assert_eq!(buf, b"1\tTitle with\\ttab\tNote\\nline2\n");
+    }
+
+    #[test]
+    fn test_write_copy_row_matches_copy_line() {
+        let test_cases: Vec<Vec<Option<&str>>> = vec![
+            vec![Some("1001"), Some("Test"), Some("US")],
+            vec![Some("1"), None, Some("value")],
+            vec![Some("42"), Some(""), Some("end")],
+            vec![Some("1"), Some("tab\there"), Some("nl\nhere")],
+        ];
+        for values in &test_cases {
+            let mut buf = Vec::new();
+            write_copy_row(&mut buf, values);
+            let expected = copy_line(values);
+            assert_eq!(
+                String::from_utf8(buf).unwrap(),
+                expected,
+                "Mismatch for values: {:?}",
+                values,
+            );
+        }
+    }
+
+    // -- write_copy_int tests --
+
+    #[test]
+    fn test_write_copy_int_u64() {
+        let mut buf = Vec::new();
+        write_copy_int(&mut buf, 12345u64);
+        assert_eq!(buf, b"12345");
+    }
+
+    #[test]
+    fn test_write_copy_int_i16() {
+        let mut buf = Vec::new();
+        write_copy_int(&mut buf, 2001i16);
+        assert_eq!(buf, b"2001");
+    }
+
+    #[test]
+    fn test_write_copy_int_u32() {
+        let mut buf = Vec::new();
+        write_copy_int(&mut buf, 0u32);
+        assert_eq!(buf, b"0");
     }
 
     // -- artwork tests --
