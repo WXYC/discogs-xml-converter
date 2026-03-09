@@ -24,6 +24,26 @@ discogs-xml-converter releases.xml.gz --output-dir /path/to/filtered/ \
 discogs-xml-converter releases.xml.gz --output-dir /tmp/test/ --limit 100
 ```
 
+### Direct-to-PostgreSQL mode
+
+Stream releases directly into PostgreSQL, bypassing the CSV round-trip:
+
+```bash
+# Stream releases directly into PostgreSQL
+discogs-xml-converter /path/to/xml-dumps/ \
+  --output-dir /path/to/supplementary/ \
+  --library-artists library_artists.txt \
+  --database-url postgresql://localhost:5432/discogs
+
+# With custom batch size (default: 10000)
+discogs-xml-converter releases.xml.gz \
+  --output-dir /tmp/out/ \
+  --database-url postgresql://localhost:5432/discogs \
+  --batch-size 5000
+```
+
+When `--database-url` is provided, releases are streamed into PostgreSQL via COPY instead of being written to CSV files. Supplementary CSVs (artist_alias.csv, label_hierarchy.csv) are still written to `--output-dir`.
+
 ### Options
 
 | Flag | Description |
@@ -32,6 +52,8 @@ discogs-xml-converter releases.xml.gz --output-dir /tmp/test/ --limit 100
 | `--library-artists FILE` | Filter to releases by artists in this file (one per line) |
 | `--limit N` | Stop after N releases |
 | `--progress-interval N` | Log progress every N releases (default: 100000) |
+| `--database-url URL` | Stream releases directly into PostgreSQL via COPY |
+| `--batch-size N` | Releases to buffer before flushing to PostgreSQL (default: 10000) |
 
 Gzipped input is auto-detected by `.gz` extension.
 
@@ -80,6 +102,20 @@ cargo test
 All tests use hand-written XML fixtures; no external data dumps needed.
 
 ## Integration with discogs-cache
+
+### Direct-to-PostgreSQL pipeline (recommended)
+
+Streams releases directly into PostgreSQL, eliminating the CSV round-trip:
+
+```bash
+python scripts/run_pipeline.py \
+  --xml /path/to/xml-dumps/ \
+  --library-artists library_artists.txt \
+  --database-url postgresql://localhost:5432/discogs \
+  --direct-pg
+```
+
+### CSV pipeline
 
 Feed the output into the `--csv-dir` pipeline mode:
 

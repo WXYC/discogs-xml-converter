@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use csv::Writer;
 
 use crate::model::Release;
+use crate::output::ReleaseOutput;
 
 /// Manages 6 CSV writers, one per output file.
 pub struct CsvOutput {
@@ -195,6 +196,20 @@ impl CsvOutput {
     /// Get the output directory path.
     pub fn output_dir(&self) -> &Path {
         &self.output_dir
+    }
+}
+
+impl ReleaseOutput for CsvOutput {
+    fn write_release(&mut self, release: &Release) -> Result<()> {
+        CsvOutput::write_release(self, release)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        CsvOutput::flush(self)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        self.flush()
     }
 }
 

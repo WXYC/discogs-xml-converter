@@ -6,5 +6,7 @@ pub mod label_model;
 pub mod label_parser;
 pub mod label_writer;
 pub mod model;
+pub mod output;
 pub mod parser;
+pub mod pg_output;
 pub mod writer;
