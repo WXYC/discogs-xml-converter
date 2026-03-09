@@ -205,7 +205,7 @@ fn process_releases(
     info!("Processing releases XML: {}", path.display());
 
     const BATCH_SIZE: usize = 256;
-    let (tx, rx) = crossbeam_channel::bounded::<ReleaseBatch>(4);
+    let (tx, rx) = crossbeam_channel::bounded::<ReleaseBatch>(64);
 
     std::thread::scope(|s| {
         // Scanner thread: read input, find release boundaries, send batches.
@@ -219,47 +219,66 @@ fn process_releases(
         let mut filtered = 0usize;
         let mut skipped_no_artists = 0usize;
 
-        for batch in &rx {
-            // Parse and filter in parallel, preserving order
-            let results: Vec<FilterResult> = batch
-                .offsets
-                .par_iter()
-                .map(|&(start, end)| {
-                    let bytes = &batch.data[start..end];
-                    let release = match parse_release_from_bytes(bytes) {
-                        Ok(r) => r,
-                        Err(_) => return FilterResult::NoArtists,
-                    };
+        // Run the processing loop, capturing any error so we can drop rx
+        // before joining the scanner thread. If rx stays alive after an error,
+        // the scanner blocks on send() and scope deadlocks waiting to join it.
+        let loop_result: Result<()> = (|| {
+            for batch in &rx {
+                // Parse and filter in parallel, preserving order
+                let results: Vec<FilterResult> = batch
+                    .offsets
+                    .par_iter()
+                    .map(|&(start, end)| {
+                        let bytes = &batch.data[start..end];
+                        let release = match parse_release_from_bytes(bytes) {
+                            Ok(r) => r,
+                            Err(_) => return FilterResult::NoArtists,
+                        };
 
-                    if release.artists.is_empty() {
-                        return FilterResult::NoArtists;
-                    }
-
-                    if let Some(f) = filter.as_ref() {
-                        if !matches_filter(f, &release) {
-                            return FilterResult::Filtered;
+                        if release.artists.is_empty() {
+                            return FilterResult::NoArtists;
                         }
-                    }
 
-                    FilterResult::Matched(Box::new(release))
-                })
-                .collect();
+                        if let Some(f) = filter.as_ref() {
+                            if !matches_filter(f, &release) {
+                                return FilterResult::Filtered;
+                            }
+                        }
 
-            // Write results sequentially to preserve document order
-            for result in results {
-                match result {
-                    FilterResult::Matched(release) => {
-                        output.write_release(&release)?;
-                        written += 1;
+                        FilterResult::Matched(Box::new(release))
+                    })
+                    .collect();
+
+                // Write results sequentially to preserve document order
+                for result in results {
+                    match result {
+                        FilterResult::Matched(release) => {
+                            output.write_release(&release)?;
+                            written += 1;
+                        }
+                        FilterResult::Filtered => filtered += 1,
+                        FilterResult::NoArtists => skipped_no_artists += 1,
                     }
-                    FilterResult::Filtered => filtered += 1,
-                    FilterResult::NoArtists => skipped_no_artists += 1,
                 }
             }
-        }
 
-        output.flush()?;
-        let total = scanner.join().unwrap()?;
+            output.flush()?;
+            Ok(())
+        })();
+
+        // Drop receiver so scanner's send() unblocks with SendError,
+        // preventing deadlock when the loop exited due to an error.
+        drop(rx);
+
+        // Scanner thread may return SendError if we dropped rx early — ignore
+        // that if we already have a loop error to report.
+        let scanner_result = scanner.join().unwrap();
+        if let Err(ref e) = loop_result {
+            warn!("Release processing failed: {}", e);
+            return loop_result;
+        }
+        let total = scanner_result?;
+
         info!(
             "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
             total, written, filtered, skipped_no_artists
