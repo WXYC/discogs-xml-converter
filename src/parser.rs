@@ -171,10 +171,11 @@ fn parse_release_body<R: BufRead>(
         ..Default::default()
     };
 
-    // Track the current element path for context
-    let mut path: Vec<String> = vec!["release".to_string()];
-
-    // State for text collection
+    // State flags are sufficient to disambiguate elements without tracking
+    // the full XML path. In particular, <title> appears both at the release
+    // level and inside <track>; the `in_track` flag distinguishes the two.
+    // A Vec<String> path would add a String allocation per element, which is
+    // significant when parsing millions of releases.
     let mut current_text = String::new();
 
     // Track artist parsing state
@@ -193,12 +194,12 @@ fn parse_release_body<R: BufRead>(
     loop {
         match reader.read_event_into(buf) {
             Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                path.push(name.clone());
+                let qname = e.name();
+                let name = qname.as_ref();
                 current_text.clear();
 
-                match name.as_str() {
-                    "artists" => {
+                match name {
+                    b"artists" => {
                         if in_track {
                             in_track_artists = true;
                         } else if !in_tracklist {
@@ -206,7 +207,7 @@ fn parse_release_body<R: BufRead>(
                             artist_position = 0;
                         }
                     }
-                    "extraartists" => {
+                    b"extraartists" => {
                         if in_track {
                             in_track_extraartists = true;
                         } else {
@@ -214,7 +215,7 @@ fn parse_release_body<R: BufRead>(
                             // Don't reset position for extra artists
                         }
                     }
-                    "artist" => {
+                    b"artist" => {
                         if in_track_artists || in_track_extraartists {
                             current_track_artist = TrackArtist::default();
                         } else if in_artists || in_extraartists {
@@ -223,14 +224,14 @@ fn parse_release_body<R: BufRead>(
                             current_artist.position = artist_position;
                         }
                     }
-                    "tracklist" => {
+                    b"tracklist" => {
                         in_tracklist = true;
                     }
-                    "track" => {
+                    b"track" => {
                         in_track = true;
                         current_track = ReleaseTrack::default();
                     }
-                    "label" => {
+                    b"label" => {
                         // Labels are empty elements with attributes
                         let mut label = ReleaseLabel::default();
                         for attr in e.attributes() {
@@ -243,7 +244,7 @@ fn parse_release_body<R: BufRead>(
                         }
                         release.labels.push(label);
                     }
-                    "format" => {
+                    b"format" => {
                         let mut format = Format::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -258,7 +259,7 @@ fn parse_release_body<R: BufRead>(
                         }
                         release.formats.push(format);
                     }
-                    "image" => {
+                    b"image" => {
                         let mut image = ReleaseImage::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -282,9 +283,10 @@ fn parse_release_body<R: BufRead>(
                 }
             }
             Ok(Event::Empty(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                match name.as_str() {
-                    "label" => {
+                let qname = e.name();
+                let name = qname.as_ref();
+                match name {
+                    b"label" => {
                         let mut label = ReleaseLabel::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -296,7 +298,7 @@ fn parse_release_body<R: BufRead>(
                         }
                         release.labels.push(label);
                     }
-                    "format" => {
+                    b"format" => {
                         let mut format = Format::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -311,7 +313,7 @@ fn parse_release_body<R: BufRead>(
                         }
                         release.formats.push(format);
                     }
-                    "image" => {
+                    b"image" => {
                         let mut image = ReleaseImage::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -341,28 +343,29 @@ fn parse_release_body<R: BufRead>(
                 current_text.push_str(&String::from_utf8_lossy(e.as_ref()));
             }
             Ok(Event::End(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let qname = e.name();
+                let name = qname.as_ref();
 
-                match name.as_str() {
-                    "release" => {
+                match name {
+                    b"release" => {
                         buf.clear();
                         return Ok(release);
                     }
-                    "artists" => {
+                    b"artists" => {
                         if in_track {
                             in_track_artists = false;
                         } else {
                             in_artists = false;
                         }
                     }
-                    "extraartists" => {
+                    b"extraartists" => {
                         if in_track {
                             in_track_extraartists = false;
                         } else {
                             in_extraartists = false;
                         }
                     }
-                    "artist" => {
+                    b"artist" => {
                         if in_track_artists || in_track_extraartists {
                             current_track.artists.push(current_track_artist.clone());
                             current_track_artist = TrackArtist::default();
@@ -374,73 +377,73 @@ fn parse_release_body<R: BufRead>(
                             current_artist = ReleaseArtist::default();
                         }
                     }
-                    "track" => {
+                    b"track" => {
                         release.tracks.push(current_track.clone());
                         current_track = ReleaseTrack::default();
                         in_track = false;
                     }
-                    "tracklist" => {
+                    b"tracklist" => {
                         in_tracklist = false;
                     }
-                    // Text content elements
-                    "title" => {
+                    // Text content elements — <title> is disambiguated by
+                    // in_track rather than path tracking (see comment above).
+                    b"title" => {
                         if in_track {
                             current_track.title = current_text.clone();
-                        } else {
-                            // Only set release title at release level (not inside nested elements)
-                            let parent = path.get(path.len().saturating_sub(2));
-                            if parent.is_none_or(|p| p == "release") {
-                                release.title = current_text.clone();
-                            }
+                        } else if !in_tracklist {
+                            // At release level: set release title. The
+                            // in_tracklist guard prevents stray <title>
+                            // elements outside <track> from clobbering.
+                            release.title = current_text.clone();
                         }
                     }
-                    "country" => {
+                    b"country" => {
                         release.country = current_text.clone();
                     }
-                    "released" => {
+                    b"released" => {
                         release.released = current_text.clone();
                     }
-                    "notes" => {
+                    b"notes" => {
                         release.notes = current_text.clone();
                     }
-                    "data_quality" => {
+                    b"data_quality" => {
                         release.data_quality = current_text.clone();
                     }
-                    "master_id" => {
+                    b"master_id" => {
                         if let Ok(id) = current_text.trim().parse::<u64>() {
                             release.master_id = Some(id);
                         }
                     }
-                    "id" => {
+                    b"id" => {
                         if in_track_artists || in_track_extraartists {
                             // Track artist ID - we don't use it
                         } else if in_artists || in_extraartists {
                             current_artist.artist_id = current_text.trim().parse().unwrap_or(0);
                         }
                     }
-                    "name" => {
+                    b"name" => {
                         if in_track_artists || in_track_extraartists {
                             current_track_artist.name = current_text.clone();
                         } else if in_artists || in_extraartists {
                             current_artist.name = current_text.clone();
                         }
                     }
-                    "anv" => {
+                    b"anv" => {
                         if in_artists || in_extraartists {
                             current_artist.anv = current_text.clone();
                         }
                     }
-                    "join" => {
+                    b"join" => {
                         if in_artists || in_extraartists {
                             current_artist.join_field = current_text.clone();
                         }
                     }
-                    "position" => {
+                    b"position" => {
                         if in_track {
                             current_track.position = current_text.clone();
                         }
                     }
-                    "duration" => {
+                    b"duration" => {
                         if in_track {
                             current_track.duration = current_text.clone();
                         }
@@ -448,7 +451,6 @@ fn parse_release_body<R: BufRead>(
                     _ => {}
                 }
 
-                path.pop();
                 current_text.clear();
             }
             Ok(Event::Eof) => {
@@ -662,6 +664,46 @@ mod tests {
         let xml = b"<notrelease></notrelease>";
         let result = parse_release_from_bytes(xml);
         assert!(result.is_err());
+    }
+
+    /// Regression test: <title> inside nested elements (e.g. inside formats
+    /// or other non-track containers) must not overwrite the release title.
+    /// This verifies the in_track/in_tracklist flag approach works correctly
+    /// without path tracking.
+    #[test]
+    fn test_nested_title_does_not_clobber_release_title() {
+        let xml = br#"<release id="42" status="Accepted">
+    <title>Real Release Title</title>
+    <artists>
+      <artist><id>1</id><name>Test</name><anv></anv><join></join></artist>
+    </artists>
+    <labels />
+    <formats>
+      <format name="CD" qty="1" text="">
+        <descriptions><description>Album</description></descriptions>
+      </format>
+    </formats>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>Track One</title>
+        <duration>3:00</duration>
+      </track>
+      <track>
+        <position>A2</position>
+        <title>Track Two</title>
+        <duration>4:00</duration>
+      </track>
+    </tracklist>
+    <notes>Some notes with title-like content</notes>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.id, 42);
+        assert_eq!(release.title, "Real Release Title");
+        assert_eq!(release.tracks.len(), 2);
+        assert_eq!(release.tracks[0].title, "Track One");
+        assert_eq!(release.tracks[1].title, "Track Two");
     }
 
     #[test]

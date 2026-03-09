@@ -91,12 +91,13 @@ fn parse_label_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Re
     loop {
         match reader.read_event_into(buf) {
             Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let qname = e.name();
+                let name = qname.as_ref();
                 current_text.clear();
 
-                match name.as_str() {
-                    "sublabels" => in_sublabels = true,
-                    "parentLabel" => {
+                match name {
+                    b"sublabels" => in_sublabels = true,
+                    b"parentLabel" => {
                         in_parent_label = true;
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -116,28 +117,29 @@ fn parse_label_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Re
                 current_text.push_str(&String::from_utf8_lossy(e.as_ref()));
             }
             Ok(Event::End(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let qname = e.name();
+                let name = qname.as_ref();
 
-                match name.as_str() {
-                    "label" if !in_sublabels => {
+                match name {
+                    b"label" if !in_sublabels => {
                         buf.clear();
                         return Ok(label);
                     }
-                    "label" if in_sublabels => {
+                    b"label" if in_sublabels => {
                         // closing a <label> inside <sublabels> — ignore
                     }
-                    "sublabels" => in_sublabels = false,
-                    "id" => {
+                    b"sublabels" => in_sublabels = false,
+                    b"id" => {
                         if !in_sublabels {
                             label.id = current_text.trim().parse().unwrap_or(0);
                         }
                     }
-                    "name" => {
+                    b"name" => {
                         if !in_sublabels && !in_parent_label {
                             label.name = current_text.trim().to_string();
                         }
                     }
-                    "parentLabel" => {
+                    b"parentLabel" => {
                         label.parent_name = current_text.trim().to_string();
                         in_parent_label = false;
                     }

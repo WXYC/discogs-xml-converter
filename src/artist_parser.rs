@@ -93,14 +93,15 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
     loop {
         match reader.read_event_into(buf) {
             Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let qname = e.name();
+                let name = qname.as_ref();
                 current_text.clear();
 
-                match name.as_str() {
-                    "namevariations" => in_namevariations = true,
-                    "aliases" => in_aliases = true,
-                    "members" => in_members = true,
-                    "name" => {
+                match name {
+                    b"namevariations" => in_namevariations = true,
+                    b"aliases" => in_aliases = true,
+                    b"members" => in_members = true,
+                    b"name" => {
                         if in_aliases || in_members {
                             // Extract id attribute from <name id="...">
                             for attr in e.attributes() {
@@ -122,19 +123,20 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
                 current_text.push_str(&String::from_utf8_lossy(e.as_ref()));
             }
             Ok(Event::End(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let qname = e.name();
+                let name = qname.as_ref();
 
-                match name.as_str() {
-                    "artist" => {
+                match name {
+                    b"artist" => {
                         buf.clear();
                         return Ok(artist);
                     }
-                    "id" => {
+                    b"id" => {
                         if !in_namevariations && !in_aliases && !in_members {
                             artist.id = current_text.trim().parse().unwrap_or(0);
                         }
                     }
-                    "name" => {
+                    b"name" => {
                         let text = current_text.trim().to_string();
                         if !text.is_empty() {
                             if in_namevariations {
@@ -152,9 +154,9 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
                             }
                         }
                     }
-                    "namevariations" => in_namevariations = false,
-                    "aliases" => in_aliases = false,
-                    "members" => in_members = false,
+                    b"namevariations" => in_namevariations = false,
+                    b"aliases" => in_aliases = false,
+                    b"members" => in_members = false,
                     _ => {}
                 }
 
