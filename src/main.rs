@@ -195,6 +195,115 @@ enum FilterResult {
     NoArtists,
 }
 
+/// Start the release scanner in a background thread.
+///
+/// Returns the batch receiver and the scanner thread's join handle.
+/// The scanner reads `path`, finds `<release>` byte boundaries, and sends
+/// batches via the channel. The bounded channel (capacity 64) provides
+/// backpressure — the scanner blocks after buffering ~16K releases.
+///
+/// Uses `std::thread::spawn` (not `scope`) so the scanner can run
+/// independently of artist/label processing in directory mode.
+fn start_scanner(
+    path: PathBuf,
+    limit: Option<usize>,
+    progress_interval: usize,
+) -> (
+    crossbeam_channel::Receiver<ReleaseBatch>,
+    std::thread::JoinHandle<Result<usize>>,
+) {
+    const BATCH_SIZE: usize = 256;
+    let (tx, rx) = crossbeam_channel::bounded::<ReleaseBatch>(64);
+    let handle = std::thread::spawn(move || {
+        scan_and_batch_releases(&path, limit, progress_interval, BATCH_SIZE, tx)
+    });
+    (rx, handle)
+}
+
+/// Consume release batches from a scanner, parse/filter with rayon, and write matches.
+///
+/// Takes ownership of the receiver and join handle from `start_scanner`.
+fn consume_releases(
+    rx: crossbeam_channel::Receiver<ReleaseBatch>,
+    scanner_handle: std::thread::JoinHandle<Result<usize>>,
+    output: &mut impl ReleaseOutput,
+    filter: &Option<ArtistFilter>,
+) -> Result<()> {
+    let mut written = 0usize;
+    let mut filtered = 0usize;
+    let mut skipped_no_artists = 0usize;
+
+    // Run the processing loop, capturing any error so we can drop rx
+    // before joining the scanner thread. If rx stays alive after an error,
+    // the scanner blocks on send() and the join deadlocks.
+    let loop_result: Result<()> = (|| {
+        for batch in &rx {
+            // Parse and filter in parallel, preserving order
+            let results: Vec<FilterResult> = batch
+                .offsets
+                .par_iter()
+                .map(|&(start, end)| {
+                    let bytes = &batch.data[start..end];
+                    let release = match parse_release_from_bytes(bytes) {
+                        Ok(r) => r,
+                        Err(_) => return FilterResult::NoArtists,
+                    };
+
+                    if release.artists.is_empty() {
+                        return FilterResult::NoArtists;
+                    }
+
+                    if let Some(f) = filter.as_ref() {
+                        if !matches_filter(f, &release) {
+                            return FilterResult::Filtered;
+                        }
+                    }
+
+                    FilterResult::Matched(Box::new(release))
+                })
+                .collect();
+
+            // Write results sequentially to preserve document order
+            for result in results {
+                match result {
+                    FilterResult::Matched(release) => {
+                        output.write_release(&release)?;
+                        written += 1;
+                    }
+                    FilterResult::Filtered => filtered += 1,
+                    FilterResult::NoArtists => skipped_no_artists += 1,
+                }
+            }
+        }
+
+        output.flush()?;
+        Ok(())
+    })();
+
+    // Drop receiver so scanner's send() unblocks with SendError,
+    // preventing deadlock when the loop exited due to an error.
+    drop(rx);
+
+    // Scanner thread may return SendError if we dropped rx early — ignore
+    // that if we already have a loop error to report.
+    let scanner_result = scanner_handle.join().unwrap();
+    if let Err(ref e) = loop_result {
+        warn!("Release processing failed: {}", e);
+        return loop_result;
+    }
+    let total = scanner_result?;
+
+    info!(
+        "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
+        total, written, filtered, skipped_no_artists
+    );
+    Ok(())
+}
+
+/// Scan and process releases from an XML file.
+///
+/// Convenience wrapper that starts the scanner and immediately consumes
+/// batches. Used in single-file mode where there's no overlap opportunity.
 fn process_releases(
     path: &Path,
     output: &mut impl ReleaseOutput,
@@ -203,88 +312,8 @@ fn process_releases(
     progress_interval: usize,
 ) -> Result<()> {
     info!("Processing releases XML: {}", path.display());
-
-    const BATCH_SIZE: usize = 256;
-    let (tx, rx) = crossbeam_channel::bounded::<ReleaseBatch>(64);
-
-    std::thread::scope(|s| {
-        // Scanner thread: read input, find release boundaries, send batches.
-        // Takes ownership of tx so the channel closes when scanning completes.
-        let scanner = s.spawn(|| -> Result<usize> {
-            scan_and_batch_releases(path, limit, progress_interval, BATCH_SIZE, tx)
-        });
-
-        // Main thread: receive batches, parse+filter with rayon, write matches
-        let mut written = 0usize;
-        let mut filtered = 0usize;
-        let mut skipped_no_artists = 0usize;
-
-        // Run the processing loop, capturing any error so we can drop rx
-        // before joining the scanner thread. If rx stays alive after an error,
-        // the scanner blocks on send() and scope deadlocks waiting to join it.
-        let loop_result: Result<()> = (|| {
-            for batch in &rx {
-                // Parse and filter in parallel, preserving order
-                let results: Vec<FilterResult> = batch
-                    .offsets
-                    .par_iter()
-                    .map(|&(start, end)| {
-                        let bytes = &batch.data[start..end];
-                        let release = match parse_release_from_bytes(bytes) {
-                            Ok(r) => r,
-                            Err(_) => return FilterResult::NoArtists,
-                        };
-
-                        if release.artists.is_empty() {
-                            return FilterResult::NoArtists;
-                        }
-
-                        if let Some(f) = filter.as_ref() {
-                            if !matches_filter(f, &release) {
-                                return FilterResult::Filtered;
-                            }
-                        }
-
-                        FilterResult::Matched(Box::new(release))
-                    })
-                    .collect();
-
-                // Write results sequentially to preserve document order
-                for result in results {
-                    match result {
-                        FilterResult::Matched(release) => {
-                            output.write_release(&release)?;
-                            written += 1;
-                        }
-                        FilterResult::Filtered => filtered += 1,
-                        FilterResult::NoArtists => skipped_no_artists += 1,
-                    }
-                }
-            }
-
-            output.flush()?;
-            Ok(())
-        })();
-
-        // Drop receiver so scanner's send() unblocks with SendError,
-        // preventing deadlock when the loop exited due to an error.
-        drop(rx);
-
-        // Scanner thread may return SendError if we dropped rx early — ignore
-        // that if we already have a loop error to report.
-        let scanner_result = scanner.join().unwrap();
-        if let Err(ref e) = loop_result {
-            warn!("Release processing failed: {}", e);
-            return loop_result;
-        }
-        let total = scanner_result?;
-
-        info!(
-            "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
-            total, written, filtered, skipped_no_artists
-        );
-        Ok(())
-    })
+    let (rx, handle) = start_scanner(path.to_path_buf(), limit, progress_interval);
+    consume_releases(rx, handle, output, filter)
 }
 
 /// A batch of release byte ranges from a contiguous buffer.
@@ -480,7 +509,18 @@ fn main() -> Result<()> {
         // Directory mode: scan for XML files and process in order
         let xml_files = scan_directory(&cli.input)?;
 
-        // Step 1: Process artists and labels in parallel (independent files)
+        // Start scanning releases early so the 57GB file read overlaps with
+        // artist/label processing. The bounded channel provides backpressure.
+        let scanner = xml_files.releases.as_ref().map(|releases_path| {
+            info!("Starting release scanner: {}", releases_path.display());
+            start_scanner(
+                releases_path.to_path_buf(),
+                cli.limit,
+                cli.progress_interval,
+            )
+        });
+
+        // Process artists and labels in parallel (independent files)
         match (&xml_files.artists, &xml_files.labels) {
             (Some(artists_path), Some(labels_path)) => {
                 std::thread::scope(|s| {
@@ -500,7 +540,7 @@ fn main() -> Result<()> {
             (None, None) => {}
         }
 
-        // Step 3: Load artist filter with optional alias enhancement
+        // Load artist filter with optional alias enhancement
         let filter = match &cli.library_artists {
             Some(path) => {
                 let mut f = ArtistFilter::from_file(path)?;
@@ -520,34 +560,21 @@ fn main() -> Result<()> {
             None => None,
         };
 
-        // Step 4: Process releases with (optionally enhanced) filter
-        if let Some(ref releases_path) = xml_files.releases {
+        // Consume scanner batches (scanner has been reading ahead this whole time)
+        if let Some((rx, handle)) = scanner {
             if let Some(ref db_url) = cli.database_url {
                 let mut output = PgOutput::new(db_url, cli.batch_size)?;
-                process_releases(
-                    releases_path,
-                    &mut output,
-                    &filter,
-                    cli.limit,
-                    cli.progress_interval,
-                )?;
+                consume_releases(rx, handle, &mut output, &filter)?;
                 output.finish()?;
             } else {
                 let mut output = CsvOutput::new(&cli.output_dir)?;
-                process_releases(
-                    releases_path,
-                    &mut output,
-                    &filter,
-                    cli.limit,
-                    cli.progress_interval,
-                )?;
+                consume_releases(rx, handle, &mut output, &filter)?;
                 output.finish()?;
             }
         } else {
             warn!("No releases XML found in directory {}", cli.input.display());
         }
 
-        // Clear filter to drop the borrow
         drop(filter);
     } else {
         // Single file mode: process as releases XML (backward compatible)
