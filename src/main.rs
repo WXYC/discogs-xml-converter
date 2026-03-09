@@ -13,6 +13,8 @@ use discogs_xml_converter::filter::ArtistFilter;
 use discogs_xml_converter::label_parser::parse_labels;
 use discogs_xml_converter::label_writer::LabelCsvOutput;
 use discogs_xml_converter::parser::parse_release_from_bytes;
+use discogs_xml_converter::output::ReleaseOutput;
+use discogs_xml_converter::pg_output::PgOutput;
 use discogs_xml_converter::writer::CsvOutput;
 use rayon::prelude::*;
 
@@ -46,6 +48,17 @@ struct Cli {
     /// Log progress every N releases
     #[arg(long, default_value = "100000")]
     progress_interval: usize,
+
+    /// PostgreSQL connection URL for direct-to-database output.
+    /// When provided, releases are streamed directly into PostgreSQL
+    /// via COPY instead of being written to CSV files.
+    #[arg(long)]
+    database_url: Option<String>,
+
+    /// Number of releases to buffer before flushing to PostgreSQL.
+    /// Only used with --database-url.
+    #[arg(long, default_value = "10000")]
+    batch_size: usize,
 }
 
 /// Detect the XML type by reading the root element.
@@ -184,7 +197,7 @@ enum FilterResult {
 
 fn process_releases(
     path: &Path,
-    output_dir: &Path,
+    output: &mut impl ReleaseOutput,
     filter: &Option<ArtistFilter>,
     limit: Option<usize>,
     progress_interval: usize,
@@ -202,7 +215,6 @@ fn process_releases(
         });
 
         // Main thread: receive batches, parse+filter with rayon, write matches
-        let mut csv = CsvOutput::new(output_dir)?;
         let mut written = 0usize;
         let mut filtered = 0usize;
         let mut skipped_no_artists = 0usize;
@@ -237,7 +249,7 @@ fn process_releases(
             for result in results {
                 match result {
                     FilterResult::Matched(release) => {
-                        csv.write_release(&release)?;
+                        output.write_release(&release)?;
                         written += 1;
                     }
                     FilterResult::Filtered => filtered += 1,
@@ -246,7 +258,7 @@ fn process_releases(
             }
         }
 
-        csv.flush()?;
+        output.flush()?;
         let total = scanner.join().unwrap()?;
         info!(
             "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
@@ -492,13 +504,27 @@ fn main() -> Result<()> {
 
         // Step 4: Process releases with (optionally enhanced) filter
         if let Some(ref releases_path) = xml_files.releases {
-            process_releases(
-                releases_path,
-                &cli.output_dir,
-                &filter,
-                cli.limit,
-                cli.progress_interval,
-            )?;
+            if let Some(ref db_url) = cli.database_url {
+                let mut output = PgOutput::new(db_url, cli.batch_size)?;
+                process_releases(
+                    releases_path,
+                    &mut output,
+                    &filter,
+                    cli.limit,
+                    cli.progress_interval,
+                )?;
+                output.finish()?;
+            } else {
+                let mut output = CsvOutput::new(&cli.output_dir)?;
+                process_releases(
+                    releases_path,
+                    &mut output,
+                    &filter,
+                    cli.limit,
+                    cli.progress_interval,
+                )?;
+                output.finish()?;
+            }
         } else {
             warn!("No releases XML found in directory {}", cli.input.display());
         }
@@ -516,13 +542,27 @@ fn main() -> Result<()> {
             None => None,
         };
 
-        process_releases(
-            &cli.input,
-            &cli.output_dir,
-            &filter,
-            cli.limit,
-            cli.progress_interval,
-        )?;
+        if let Some(ref db_url) = cli.database_url {
+            let mut output = PgOutput::new(db_url, cli.batch_size)?;
+            process_releases(
+                &cli.input,
+                &mut output,
+                &filter,
+                cli.limit,
+                cli.progress_interval,
+            )?;
+            output.finish()?;
+        } else {
+            let mut output = CsvOutput::new(&cli.output_dir)?;
+            process_releases(
+                &cli.input,
+                &mut output,
+                &filter,
+                cli.limit,
+                cli.progress_interval,
+            )?;
+            output.finish()?;
+        }
     }
 
     Ok(())

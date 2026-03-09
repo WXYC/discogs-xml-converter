@@ -10,9 +10,11 @@ Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compa
 
 - `model.rs` -- Data structures mirroring Discogs XML `<release>` elements
 - `parser.rs` -- Pull-based XML parser using `quick-xml`, supports plain and gzipped input; `parse_release_from_bytes()` enables per-release parsing for the parallel pipeline
-- `writer.rs` -- CSV output (6 files matching `import_csv.py` contract)
+- `output.rs` -- `ReleaseOutput` trait abstracting over output targets (CSV or PostgreSQL)
+- `writer.rs` -- `CsvOutput` implementation of `ReleaseOutput` (6 CSV files matching `import_csv.py` contract)
+- `pg_output.rs` -- `PgOutput` implementation of `ReleaseOutput` for direct-to-PostgreSQL streaming via COPY; also contains pure transform functions ported from `import_csv.py` (extract_year, COPY TEXT escaping, artwork selection, dedup)
 - `filter.rs` -- Artist name normalization (NFKD + strip combining chars) and HashSet filtering; `ArtistFilter` is `Sync` for parallel access
-- `main.rs` -- CLI using clap derive; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer)
+- `main.rs` -- CLI using clap derive; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer); output dispatch between CSV and PG modes
 
 ### Parallel Processing Pipeline
 
@@ -20,9 +22,19 @@ Release processing uses a three-stage pipeline for multi-core parallelism:
 
 1. **Scanner thread** -- reads the input file, scans for `<release>...</release>` byte boundaries, batches raw byte ranges (256 per batch), sends via bounded channel (capacity 4)
 2. **Rayon worker pool** -- receives batches, parses XML from bytes + normalizes/filters artists in parallel using `par_iter()` (order-preserving)
-3. **Writer (main thread)** -- writes matched releases to CSV sequentially, preserving XML document order
+3. **Writer (main thread)** -- writes matched releases via `ReleaseOutput` trait, preserving XML document order
 
-Artist and label XML files are processed in parallel via `std::thread::scope` when both are present in directory mode.
+The writer stage dispatches to either `CsvOutput` (CSV files) or `PgOutput` (PostgreSQL COPY) based on the `--database-url` flag. Artist and label XML files are processed in parallel via `std::thread::scope` when both are present in directory mode.
+
+### Output Architecture
+
+The `ReleaseOutput` trait (`output.rs`) provides a common interface for writing release data:
+
+- `write_release()` -- buffer a single release and all its child records
+- `flush()` -- send buffered data to the output target
+- `finish()` -- flush remaining data and perform post-processing
+
+`CsvOutput` writes 6 CSV files to disk. `PgOutput` buffers COPY TEXT rows in memory and flushes to PostgreSQL every `--batch-size` releases, writing tables in FK order (release first, then children). `PgOutput::finish()` also handles artwork URL population, track count table creation, and cache_metadata insertion.
 
 ### CSV Output Contract
 
@@ -39,9 +51,12 @@ All code changes follow test-driven development. No production code without a fa
 ```bash
 cargo test          # all tests (unit, integration, oracle, CLI)
 cargo test --lib    # unit tests only
+
+# PostgreSQL integration tests (requires a test database)
+TEST_DATABASE_URL=postgresql:///discogs_test cargo test pg_output
 ```
 
-No external dependencies needed. All fixtures are hand-written and checked in.
+Unit tests and CSV tests use hand-written XML fixtures; no external dependencies needed. PostgreSQL integration tests are gated by the `TEST_DATABASE_URL` environment variable and skip automatically when it is not set.
 
 ### Build
 
@@ -66,3 +81,7 @@ cargo build --release   # produces target/release/discogs-xml-converter
 - The byte scanner finds `<release>` boundaries by searching for `b"<release "` (trailing space distinguishes from `<released>`) and `b"</release>"` (no suffix distinguishes from `</released>`)
 - `par_iter().map().collect()` preserves input order so CSV output is deterministic regardless of thread scheduling
 - Bounded channel (capacity 4 batches of 256 releases) provides backpressure to prevent unbounded memory growth
+- `PgOutput` replicates `import_csv.py`'s transforms in Rust: `extract_year`, empty-to-NULL, COPY TEXT escaping, dedup by unique key, artwork URL selection
+- `PgOutput` flushes tables in FK order (release first, then children) so FK constraints are satisfied within each flush
+- In direct-PG mode, all tables (including tracks) are imported in a single pass; dedup's CASCADE delete removes extra tracks afterward
+- `PgOutput::finish()` handles artwork URLs, `release_track_count` table, and `cache_metadata` -- replicating `import_csv.py --base-only` post-import work
