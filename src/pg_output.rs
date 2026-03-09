@@ -177,6 +177,7 @@ pub struct PgOutput {
     track_counts: TrackCountMap,
     batch_count: usize,
     batch_size: usize,
+    total_written: usize,
 }
 
 impl PgOutput {
@@ -198,7 +199,13 @@ impl PgOutput {
             track_counts: HashMap::new(),
             batch_count: 0,
             batch_size,
+            total_written: 0,
         })
+    }
+
+    /// Number of releases flushed to PostgreSQL so far.
+    pub fn total_written(&self) -> usize {
+        self.total_written
     }
 
     /// COPY a buffer of COPY TEXT data into a table. No-op if buffer is empty.
@@ -368,6 +375,12 @@ impl ReleaseOutput for PgOutput {
             "COPY release_track_artist (release_id, track_sequence, artist_name) FROM STDIN",
             &self.buf_release_track_artist,
         )?;
+
+        self.total_written += self.batch_count;
+        info!(
+            "Flushed {} releases to PostgreSQL ({} total)",
+            self.batch_count, self.total_written
+        );
 
         self.buf_release.clear();
         self.buf_release_artist.clear();
@@ -869,7 +882,10 @@ mod tests {
             };
             output.write_release(&release).unwrap();
         }
+        // batch_size=2: flushes at 2, 4; finish() flushes remaining 1
+        assert_eq!(output.total_written(), 4);
         output.finish().unwrap();
+        assert_eq!(output.total_written(), 5);
 
         let mut client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
         let row = client
