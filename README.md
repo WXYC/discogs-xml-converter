@@ -62,10 +62,14 @@ Artist and label XML files are also processed in parallel when both are present 
 
 ## Building
 
+Requires the [Rust toolchain](https://rustup.rs/).
+
 ```bash
 cargo build --release
-# Binary at target/release/discogs-xml-converter
+cargo install --path .
 ```
+
+`cargo install` copies the binary to `~/.cargo/bin/discogs-xml-converter`, which is on your PATH if you installed Rust via rustup. Alternatively, reference the binary directly at `target/release/discogs-xml-converter`.
 
 ## Testing
 
