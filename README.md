@@ -80,7 +80,11 @@ Release processing is parallelized across all CPU cores:
 2. A **rayon worker pool** parses XML and performs NFKD artist name normalization in parallel
 3. The **main thread** writes matched releases to CSV sequentially, preserving document order
 
-Artist and label XML files are also processed in parallel when both are present in directory mode.
+Artist and label XML files are also processed in parallel when both are present in directory mode. In directory mode, the release scanner starts before artist/label processing completes, overlapping the large file read with smaller-file CPU work.
+
+### Gzipped input
+
+The converter streams `.xml.gz` files via on-the-fly decompression (flate2 GzDecoder), auto-detected by the `.gz` extension. This reduces disk I/O from ~57GB to ~5GB for the releases file, but adds CPU overhead for decompression. Net win when the bottleneck is disk throughput (slow or external drives); neutral or slightly slower on fast NVMe where CPU is the bottleneck.
 
 ## Building
 
