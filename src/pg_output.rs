@@ -108,8 +108,7 @@ impl ArtistDedup {
 
     /// Returns true if this is the first occurrence (not a duplicate).
     pub fn insert(&mut self, release_id: u64, artist_name: &str) -> bool {
-        self.seen
-            .insert((release_id, artist_name.to_string()))
+        self.seen.insert((release_id, artist_name.to_string()))
     }
 }
 
@@ -256,8 +255,7 @@ impl ReleaseOutput for PgOutput {
                 Some(&artist.name),
                 Some("0"),
             ]);
-            self.buf_release_artist
-                .extend_from_slice(line.as_bytes());
+            self.buf_release_artist.extend_from_slice(line.as_bytes());
         }
 
         // release_artist rows (extra artists, extra=1)
@@ -275,8 +273,7 @@ impl ReleaseOutput for PgOutput {
                 Some(&artist.name),
                 Some("1"),
             ]);
-            self.buf_release_artist
-                .extend_from_slice(line.as_bytes());
+            self.buf_release_artist.extend_from_slice(line.as_bytes());
         }
 
         // release_label rows (release_id, label_name only -- catno is not in the DB)
@@ -288,8 +285,7 @@ impl ReleaseOutput for PgOutput {
                 continue;
             }
             let line = copy_line(&[Some(&id_str), Some(&label.name)]);
-            self.buf_release_label
-                .extend_from_slice(line.as_bytes());
+            self.buf_release_label.extend_from_slice(line.as_bytes());
         }
 
         // release_track rows + track count
@@ -312,8 +308,7 @@ impl ReleaseOutput for PgOutput {
                 Some(&track.title),
                 empty_to_none(&track.duration),
             ]);
-            self.buf_release_track
-                .extend_from_slice(line.as_bytes());
+            self.buf_release_track.extend_from_slice(line.as_bytes());
 
             // Track artists (both main and extra)
             for artist in track.artists.iter().chain(track.extra_artists.iter()) {
@@ -323,8 +318,7 @@ impl ReleaseOutput for PgOutput {
                 {
                     continue;
                 }
-                let line =
-                    copy_line(&[Some(&id_str), Some(&seq_str), Some(&artist.name)]);
+                let line = copy_line(&[Some(&id_str), Some(&seq_str), Some(&artist.name)]);
                 self.buf_release_track_artist
                     .extend_from_slice(line.as_bytes());
             }
@@ -412,8 +406,7 @@ impl ReleaseOutput for PgOutput {
                     .client
                     .copy_in("COPY _artwork (release_id, artwork_url) FROM STDIN")?;
                 for (release_id, url) in &self.artwork {
-                    let line =
-                        copy_line(&[Some(&release_id.to_string()), Some(url)]);
+                    let line = copy_line(&[Some(&release_id.to_string()), Some(url)]);
                     writer.write_all(line.as_bytes())?;
                 }
                 writer.finish()?;
@@ -438,14 +431,11 @@ impl ReleaseOutput for PgOutput {
                 "Creating release_track_count with {} entries...",
                 self.track_counts.len()
             );
-            let mut writer = self.client.copy_in(
-                "COPY release_track_count (release_id, track_count) FROM STDIN",
-            )?;
+            let mut writer = self
+                .client
+                .copy_in("COPY release_track_count (release_id, track_count) FROM STDIN")?;
             for (release_id, count) in &self.track_counts {
-                let line = copy_line(&[
-                    Some(&release_id.to_string()),
-                    Some(&count.to_string()),
-                ]);
+                let line = copy_line(&[Some(&release_id.to_string()), Some(&count.to_string())]);
                 writer.write_all(line.as_bytes())?;
             }
             writer.finish()?;
@@ -795,7 +785,10 @@ mod tests {
 
         // Verify release
         let row = client
-            .query_one("SELECT id, title, release_year, country, master_id FROM release", &[])
+            .query_one(
+                "SELECT id, title, release_year, country, master_id FROM release",
+                &[],
+            )
             .unwrap();
         assert_eq!(row.get::<_, i32>(0), 1001);
         assert_eq!(row.get::<_, &str>(1), "Confield");
@@ -805,7 +798,10 @@ mod tests {
 
         // Verify release_artist
         let rows = client
-            .query("SELECT release_id, artist_id, artist_name, extra FROM release_artist", &[])
+            .query(
+                "SELECT release_id, artist_id, artist_name, extra FROM release_artist",
+                &[],
+            )
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].get::<_, &str>(2), "Autechre");
@@ -840,7 +836,10 @@ mod tests {
 
         // Verify cache_metadata
         let row = client
-            .query_one("SELECT source FROM cache_metadata WHERE release_id = 1001", &[])
+            .query_one(
+                "SELECT source FROM cache_metadata WHERE release_id = 1001",
+                &[],
+            )
             .unwrap();
         assert_eq!(row.get::<_, &str>(0), "bulk_import");
 

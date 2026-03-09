@@ -12,8 +12,8 @@ use discogs_xml_converter::artist_writer::ArtistCsvOutput;
 use discogs_xml_converter::filter::ArtistFilter;
 use discogs_xml_converter::label_parser::parse_labels;
 use discogs_xml_converter::label_writer::LabelCsvOutput;
-use discogs_xml_converter::parser::parse_release_from_bytes;
 use discogs_xml_converter::output::ReleaseOutput;
+use discogs_xml_converter::parser::parse_release_from_bytes;
 use discogs_xml_converter::pg_output::PgOutput;
 use discogs_xml_converter::writer::CsvOutput;
 use rayon::prelude::*;
@@ -361,6 +361,11 @@ const RELEASE_END: &[u8] = b"</release>";
 /// Reads the input into a buffer, scans for `<release `...`</release>` byte
 /// boundaries, and sends complete releases as batches via the channel.
 /// Uses SIMD-accelerated search via `memchr::memmem`.
+///
+/// Uses cursor-based buffer management: a `consumed` cursor tracks how many
+/// leading bytes have been logically processed, and the buffer is only
+/// compacted when the consumed portion exceeds half the buffer length.
+/// This avoids O(n) `drain()` calls on every release.
 fn scan_reader<R: Read>(
     reader: R,
     limit: Option<usize>,
@@ -377,13 +382,24 @@ fn scan_reader<R: Read>(
     // Buffer of unprocessed bytes (may span multiple read calls)
     let mut unprocessed: Vec<u8> = Vec::new();
 
+    // Cursor tracking how many leading bytes have been logically consumed.
+    // The live data is `unprocessed[consumed..]`. We compact (drain) only
+    // when `consumed > unprocessed.len() / 2` to amortize the O(n) shift.
+    let mut consumed: usize = 0;
+
     // Current batch being assembled
-    let mut batch_data: Vec<u8> = Vec::new();
-    let mut batch_offsets: Vec<(usize, usize)> = Vec::new();
+    let mut batch_data: Vec<u8> = Vec::with_capacity(batch_size * 4096);
+    let mut batch_offsets: Vec<(usize, usize)> = Vec::with_capacity(batch_size);
 
     let mut eof = false;
 
     while !eof {
+        // Compact buffer when the consumed portion exceeds half the total length
+        if consumed > 0 && consumed > unprocessed.len() / 2 {
+            unprocessed.drain(..consumed);
+            consumed = 0;
+        }
+
         // Read more data into unprocessed buffer
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
@@ -396,32 +412,29 @@ fn scan_reader<R: Read>(
 
         // Extract complete releases from unprocessed buffer
         loop {
+            let live = &unprocessed[consumed..];
+
             // Find next <release  start
-            let start_offset = match start_finder.find(&unprocessed) {
+            let start_offset = match start_finder.find(live) {
                 Some(offset) => offset,
                 None => {
-                    // No start tag found. Discard bytes before the last
-                    // possible partial match to prevent unbounded growth,
-                    // but keep enough to catch a straddled start tag.
-                    let keep = RELEASE_START.len().saturating_sub(1).min(unprocessed.len());
-                    let drain_to = unprocessed.len() - keep;
-                    if drain_to > 0 {
-                        unprocessed.drain(..drain_to);
-                    }
+                    // No start tag found. Advance cursor past everything
+                    // except the last few bytes that could be a partial
+                    // start tag straddling buffer boundaries.
+                    let keep = RELEASE_START.len().saturating_sub(1).min(live.len());
+                    consumed = unprocessed.len() - keep;
                     break;
                 }
             };
 
             // Find </release> after the start
             let search_from = start_offset + RELEASE_START.len();
-            let end_offset = match end_finder.find(&unprocessed[search_from..]) {
+            let end_offset = match end_finder.find(&live[search_from..]) {
                 Some(offset) => search_from + offset,
                 None => {
-                    // End tag not yet found; discard bytes before the start
-                    // tag and wait for more data
-                    if start_offset > 0 {
-                        unprocessed.drain(..start_offset);
-                    }
+                    // End tag not yet found; advance cursor to the start
+                    // tag position and wait for more data.
+                    consumed += start_offset;
                     break;
                 }
             };
@@ -430,7 +443,7 @@ fn scan_reader<R: Read>(
 
             // Extract the complete release bytes
             let batch_start = batch_data.len();
-            batch_data.extend_from_slice(&unprocessed[start_offset..end_pos]);
+            batch_data.extend_from_slice(&live[start_offset..end_pos]);
             batch_offsets.push((batch_start, batch_data.len()));
 
             count += 1;
@@ -441,9 +454,13 @@ fn scan_reader<R: Read>(
 
             // Send batch if full
             if batch_offsets.len() >= batch_size {
+                let sent_data = std::mem::take(&mut batch_data);
+                let sent_offsets = std::mem::take(&mut batch_offsets);
+                batch_data = Vec::with_capacity(batch_size * 4096);
+                batch_offsets = Vec::with_capacity(batch_size);
                 tx.send(ReleaseBatch {
-                    data: std::mem::take(&mut batch_data),
-                    offsets: std::mem::take(&mut batch_offsets),
+                    data: sent_data,
+                    offsets: sent_offsets,
                 })?;
             }
 
@@ -460,8 +477,8 @@ fn scan_reader<R: Read>(
                 }
             }
 
-            // Remove processed bytes
-            unprocessed.drain(..end_pos);
+            // Advance cursor past the processed release
+            consumed += end_pos;
         }
     }
 
