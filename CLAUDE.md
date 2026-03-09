@@ -20,11 +20,11 @@ Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compa
 
 Release processing uses a three-stage pipeline for multi-core parallelism:
 
-1. **Scanner thread** -- reads the input file, scans for `<release>...</release>` byte boundaries, batches raw byte ranges (256 per batch), sends via bounded channel (capacity 4)
+1. **Scanner thread** -- reads the input file, scans for `<release>...</release>` byte boundaries using SIMD-accelerated `memchr::memmem`, batches raw byte ranges (256 per batch), sends via bounded channel (capacity 64)
 2. **Rayon worker pool** -- receives batches, parses XML from bytes + normalizes/filters artists in parallel using `par_iter()` (order-preserving)
 3. **Writer (main thread)** -- writes matched releases via `ReleaseOutput` trait, preserving XML document order
 
-The writer stage dispatches to either `CsvOutput` (CSV files) or `PgOutput` (PostgreSQL COPY) based on the `--database-url` flag. Artist and label XML files are processed in parallel via `std::thread::scope` when both are present in directory mode.
+The writer stage dispatches to either `CsvOutput` (CSV files) or `PgOutput` (PostgreSQL COPY) based on the `--database-url` flag. In directory mode, the scanner starts before artist/label processing completes (`start_scanner` + `consume_releases`), overlapping the large file read with smaller-file work. Artist and label XML files are processed in parallel via `std::thread::scope` when both are present.
 
 ### Output Architecture
 
@@ -78,9 +78,10 @@ cargo build --release   # produces target/release/discogs-xml-converter
 - Track sequence is 1-indexed position in the `<tracklist>`
 - Both main and extra track artists go to `release_track_artist.csv` (no `extra` column in that table)
 - `parse_release_from_bytes()` enables per-release XML parsing for the parallel pipeline; `extract_release_attrs()` is shared between single-stream and per-release parsers
-- The byte scanner finds `<release>` boundaries by searching for `b"<release "` (trailing space distinguishes from `<released>`) and `b"</release>"` (no suffix distinguishes from `</released>`)
+- The byte scanner finds `<release>` boundaries using `memchr::memmem` (SIMD-accelerated) searching for `b"<release "` (trailing space distinguishes from `<released>`) and `b"</release>"` (no suffix distinguishes from `</released>`)
 - `par_iter().map().collect()` preserves input order so CSV output is deterministic regardless of thread scheduling
-- Bounded channel (capacity 4 batches of 256 releases) provides backpressure to prevent unbounded memory growth
+- Bounded channel (capacity 64 batches of 256 releases) provides backpressure to prevent unbounded memory growth
+- In directory mode, `start_scanner()` launches the scanner via `std::thread::spawn` before artist/label processing; `consume_releases()` joins it after the filter is ready. Uses `PathBuf` (not `&Path`) for the `'static` lifetime requirement
 - `PgOutput` replicates `import_csv.py`'s transforms in Rust: `extract_year`, empty-to-NULL, COPY TEXT escaping, dedup by unique key, artwork URL selection
 - `PgOutput` flushes tables in FK order (release first, then children) so FK constraints are satisfied within each flush
 - In direct-PG mode, all tables (including tracks) are imported in a single pass; dedup's CASCADE delete removes extra tracks afterward
