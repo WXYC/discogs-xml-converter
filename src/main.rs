@@ -56,8 +56,9 @@ struct Cli {
     database_url: Option<String>,
 
     /// Number of releases to buffer before flushing to PostgreSQL.
-    /// Only used with --database-url.
-    #[arg(long, default_value = "10000")]
+    /// Only used with --database-url. Larger values reduce per-COPY overhead
+    /// but use more memory (~100 bytes/release across 5 table buffers).
+    #[arg(long, default_value = "100000")]
     batch_size: usize,
 }
 
