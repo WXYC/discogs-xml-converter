@@ -233,6 +233,8 @@ fn consume_releases(
     let mut written = 0usize;
     let mut filtered = 0usize;
     let mut skipped_no_artists = 0usize;
+    let mut duplicate_ids = 0usize;
+    let mut seen_ids = std::collections::HashSet::new();
 
     // Run the processing loop, capturing any error so we can drop rx
     // before joining the scanner thread. If rx stays alive after an error,
@@ -268,6 +270,11 @@ fn consume_releases(
             for result in results {
                 match result {
                     FilterResult::Matched(release) => {
+                        if !seen_ids.insert(release.id) {
+                            warn!("Skipping duplicate release id={}", release.id);
+                            duplicate_ids += 1;
+                            continue;
+                        }
                         output.write_release(&release)?;
                         written += 1;
                     }
@@ -294,10 +301,14 @@ fn consume_releases(
     }
     let total = scanner_result?;
 
-    info!(
+    let mut msg = format!(
         "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
         total, written, filtered, skipped_no_artists
     );
+    if duplicate_ids > 0 {
+        msg.push_str(&format!(", {} duplicate ids skipped", duplicate_ids));
+    }
+    info!("{}", msg);
     Ok(())
 }
 
@@ -835,6 +846,56 @@ mod tests {
             }
         }
         assert_eq!(parsed_ids.len(), 16);
+    }
+
+    #[test]
+    fn test_duplicate_release_ids_are_skipped() {
+        // XML with two releases sharing the same id=1
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <release id="1" status="Accepted">
+    <title>DOGA</title>
+    <artists><artist><id>101</id><name>Juana Molina</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>A1</position><title>Cosoco</title><duration>4:12</duration></track></tracklist>
+  </release>
+  <release id="1" status="Accepted">
+    <title>Different Title</title>
+    <artists><artist><id>101</id><name>Juana Molina</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>A1</position><title>Other Track</title><duration>3:00</duration></track></tracklist>
+  </release>
+  <release id="2" status="Accepted">
+    <title>Aluminum Tunes</title>
+    <artists><artist><id>102</id><name>Stereolab</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>1</position><title>Fuses</title><duration>7:29</duration></track></tracklist>
+  </release>
+</releases>"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_path = dir.path().join("releases.xml");
+        std::fs::write(&xml_path, xml).unwrap();
+
+        let output_dir = dir.path().join("output");
+        let mut output = CsvOutput::new(&output_dir).unwrap();
+        let filter = None;
+
+        process_releases(&xml_path, &mut output, &filter, None, 100_000).unwrap();
+        output.finish().unwrap();
+
+        // Read release.csv and verify only 2 releases (id=1 appears once, id=2 once)
+        let release_csv = std::fs::read_to_string(output_dir.join("release.csv")).unwrap();
+        let lines: Vec<&str> = release_csv.lines().collect();
+        // Header + 2 data rows (not 3)
+        assert_eq!(
+            lines.len(),
+            3,
+            "Expected header + 2 releases, got: {release_csv}"
+        );
+        // First occurrence wins: "DOGA" not "Different Title"
+        assert!(lines[1].contains("DOGA"), "First occurrence should be kept");
+        assert!(
+            !release_csv.contains("Different Title"),
+            "Duplicate should be skipped"
+        );
     }
 
     #[test]
