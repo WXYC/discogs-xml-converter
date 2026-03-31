@@ -190,6 +190,13 @@ fn parse_release_body<R: BufRead>(
     let mut in_tracklist = false;
     let mut in_track = false;
 
+    // Genres, styles, companies parsing state
+    let mut in_genres = false;
+    let mut in_styles = false;
+    let mut in_companies = false;
+    let mut in_company = false;
+    let mut current_company = ReleaseCompany::default();
+
     buf.clear();
     loop {
         match reader.read_event_into(buf) {
@@ -278,6 +285,21 @@ fn parse_release_body<R: BufRead>(
                             }
                         }
                         release.images.push(image);
+                    }
+                    b"genres" => {
+                        in_genres = true;
+                    }
+                    b"styles" => {
+                        in_styles = true;
+                    }
+                    b"companies" => {
+                        in_companies = true;
+                    }
+                    b"company" => {
+                        if in_companies {
+                            in_company = true;
+                            current_company = ReleaseCompany::default();
+                        }
                     }
                     _ => {}
                 }
@@ -415,18 +437,60 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"id" => {
-                        if in_track_artists || in_track_extraartists {
+                        if in_companies && in_company {
+                            current_company.company_id =
+                                current_text.trim().parse().unwrap_or(0);
+                        } else if in_track_artists || in_track_extraartists {
                             // Track artist ID - we don't use it
                         } else if in_artists || in_extraartists {
                             current_artist.artist_id = current_text.trim().parse().unwrap_or(0);
                         }
                     }
                     b"name" => {
-                        if in_track_artists || in_track_extraartists {
+                        if in_companies && in_company {
+                            current_company.name = current_text.clone();
+                        } else if in_track_artists || in_track_extraartists {
                             current_track_artist.name = current_text.clone();
                         } else if in_artists || in_extraartists {
                             current_artist.name = current_text.clone();
                         }
+                    }
+                    b"genre" => {
+                        if in_genres {
+                            release.genres.push(current_text.clone());
+                        }
+                    }
+                    b"genres" => {
+                        in_genres = false;
+                    }
+                    b"style" => {
+                        if in_styles {
+                            release.styles.push(current_text.clone());
+                        }
+                    }
+                    b"styles" => {
+                        in_styles = false;
+                    }
+                    b"entity_type_name" => {
+                        if in_companies && in_company {
+                            current_company.entity_type_name = current_text.clone();
+                        }
+                    }
+                    b"entity_type" => {
+                        if in_companies && in_company {
+                            current_company.entity_type =
+                                current_text.trim().parse().unwrap_or(0);
+                        }
+                    }
+                    b"company" => {
+                        if in_companies {
+                            release.companies.push(current_company.clone());
+                            current_company = ReleaseCompany::default();
+                            in_company = false;
+                        }
+                    }
+                    b"companies" => {
+                        in_companies = false;
                     }
                     b"anv" => {
                         if in_artists || in_extraartists {
@@ -526,6 +590,22 @@ mod tests {
             r.images[0].uri,
             "https://img.discogs.com/abc123/release-1001.jpg"
         );
+
+        // Genres
+        assert_eq!(r.genres, vec!["Electronic", "Rock"]);
+
+        // Styles
+        assert_eq!(r.styles, vec!["Alternative Rock", "Art Rock", "Experimental"]);
+
+        // Companies
+        assert_eq!(r.companies.len(), 2);
+        assert_eq!(r.companies[0].company_id, 271046);
+        assert_eq!(r.companies[0].name, "The Globe Studios");
+        assert_eq!(r.companies[0].entity_type, 23);
+        assert_eq!(r.companies[0].entity_type_name, "Recorded At");
+        assert_eq!(r.companies[1].company_id, 56025);
+        assert_eq!(r.companies[1].name, "Abbey Road Studios");
+        assert_eq!(r.companies[1].entity_type_name, "Mixed At");
     }
 
     #[test]
@@ -634,6 +714,21 @@ mod tests {
     <formats>
       <format name="CD" qty="1" text="" />
     </formats>
+    <genres>
+      <genre>Electronic</genre>
+      <genre>Rock</genre>
+    </genres>
+    <styles>
+      <style>Alternative Rock</style>
+    </styles>
+    <companies>
+      <company>
+        <id>271046</id>
+        <name>The Globe Studios</name>
+        <entity_type>23</entity_type>
+        <entity_type_name>Recorded At</entity_type_name>
+      </company>
+    </companies>
     <tracklist>
       <track>
         <position>1</position>
@@ -657,6 +752,13 @@ mod tests {
         assert_eq!(release.labels[0].name, "Parlophone");
         assert_eq!(release.tracks.len(), 1);
         assert_eq!(release.tracks[0].title, "Airbag");
+        assert_eq!(release.genres, vec!["Electronic", "Rock"]);
+        assert_eq!(release.styles, vec!["Alternative Rock"]);
+        assert_eq!(release.companies.len(), 1);
+        assert_eq!(release.companies[0].company_id, 271046);
+        assert_eq!(release.companies[0].name, "The Globe Studios");
+        assert_eq!(release.companies[0].entity_type, 23);
+        assert_eq!(release.companies[0].entity_type_name, "Recorded At");
     }
 
     #[test]

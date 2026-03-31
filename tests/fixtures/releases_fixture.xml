@@ -53,6 +53,22 @@
       <image type="primary" width="600" height="600" uri="https://img.discogs.com/abc123/release-1001.jpg" />
       <image type="secondary" width="300" height="300" uri="https://img.discogs.com/abc123/release-1001-back.jpg" />
     </images>
+    <genres>
+      <genre>Electronic</genre>
+      <genre>Rock</genre>
+    </genres>
+    <styles>
+      <style>Alternative Rock</style>
+      <style>Art Rock</style>
+    </styles>
+    <companies>
+      <company>
+        <id>271046</id>
+        <name>The Globe Studios</name>
+        <entity_type>23</entity_type>
+        <entity_type_name>Recorded At</entity_type_name>
+      </company>
+    </companies>
   </release>
 
   <!-- Release 1002: OK Computer US Vinyl (5 tracks) -->

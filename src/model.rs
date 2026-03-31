@@ -20,6 +20,9 @@ pub struct Release {
     pub labels: Vec<ReleaseLabel>,
     pub tracks: Vec<ReleaseTrack>,
     pub images: Vec<ReleaseImage>,
+    pub genres: Vec<String>,
+    pub styles: Vec<String>,
+    pub companies: Vec<ReleaseCompany>,
 }
 
 impl Release {
@@ -85,4 +88,12 @@ pub struct ReleaseImage {
     pub width: u32,
     pub height: u32,
     pub uri: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReleaseCompany {
+    pub company_id: u64,
+    pub name: String,
+    pub entity_type: u32,
+    pub entity_type_name: String,
 }

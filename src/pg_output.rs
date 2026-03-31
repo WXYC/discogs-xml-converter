@@ -211,6 +211,9 @@ pub struct PgOutput {
     buf_release_label: Vec<u8>,
     buf_release_track: Vec<u8>,
     buf_release_track_artist: Vec<u8>,
+    buf_release_genre: Vec<u8>,
+    buf_release_style: Vec<u8>,
+    buf_release_company: Vec<u8>,
     artist_dedup: ArtistDedup,
     label_dedup: LabelDedup,
     track_artist_dedup: TrackArtistDedup,
@@ -233,6 +236,9 @@ impl PgOutput {
             buf_release_label: Vec::new(),
             buf_release_track: Vec::new(),
             buf_release_track_artist: Vec::new(),
+            buf_release_genre: Vec::new(),
+            buf_release_style: Vec::new(),
+            buf_release_company: Vec::new(),
             artist_dedup: ArtistDedup::new(),
             label_dedup: LabelDedup::new(),
             track_artist_dedup: TrackArtistDedup::new(),
@@ -396,6 +402,48 @@ impl ReleaseOutput for PgOutput {
             }
         }
 
+        // release_genre rows
+        for genre in &release.genres {
+            if genre.is_empty() {
+                continue;
+            }
+            let buf = &mut self.buf_release_genre;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, genre);
+            buf.push(b'\n');
+        }
+
+        // release_style rows
+        for style in &release.styles {
+            if style.is_empty() {
+                continue;
+            }
+            let buf = &mut self.buf_release_style;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, style);
+            buf.push(b'\n');
+        }
+
+        // release_company rows
+        for company in &release.companies {
+            if company.name.is_empty() {
+                continue;
+            }
+            let buf = &mut self.buf_release_company;
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            write_copy_int(buf, company.company_id);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &company.name);
+            buf.push(b'\t');
+            write_copy_int(buf, company.entity_type);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &company.entity_type_name);
+            buf.push(b'\n');
+        }
+
         // Artwork (accumulated for batch UPDATE in finish())
         if let Some(url) = pick_artwork_url(&release.images) {
             self.artwork.insert(release.id, url.to_string());
@@ -441,6 +489,21 @@ impl ReleaseOutput for PgOutput {
             "COPY release_track_artist (release_id, track_sequence, artist_name) FROM STDIN",
             &self.buf_release_track_artist,
         )?;
+        Self::copy_buffer(
+            &mut self.client,
+            "COPY release_genre (release_id, genre) FROM STDIN",
+            &self.buf_release_genre,
+        )?;
+        Self::copy_buffer(
+            &mut self.client,
+            "COPY release_style (release_id, style) FROM STDIN",
+            &self.buf_release_style,
+        )?;
+        Self::copy_buffer(
+            &mut self.client,
+            "COPY release_company (release_id, company_id, company_name, entity_type, entity_type_name) FROM STDIN",
+            &self.buf_release_company,
+        )?;
 
         self.total_written += self.batch_count;
         info!(
@@ -453,6 +516,9 @@ impl ReleaseOutput for PgOutput {
         self.buf_release_label.clear();
         self.buf_release_track.clear();
         self.buf_release_track_artist.clear();
+        self.buf_release_genre.clear();
+        self.buf_release_style.clear();
+        self.buf_release_company.clear();
         self.batch_count = 0;
 
         Ok(())
@@ -857,6 +923,9 @@ mod tests {
                  DROP TABLE IF EXISTS release_track CASCADE;
                  DROP TABLE IF EXISTS release_label CASCADE;
                  DROP TABLE IF EXISTS release_artist CASCADE;
+                 DROP TABLE IF EXISTS release_genre CASCADE;
+                 DROP TABLE IF EXISTS release_style CASCADE;
+                 DROP TABLE IF EXISTS release_company CASCADE;
                  DROP TABLE IF EXISTS release CASCADE;",
             )
             .unwrap();
@@ -893,6 +962,21 @@ mod tests {
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
                     track_sequence integer NOT NULL,
                     artist_name text NOT NULL
+                );
+                CREATE TABLE release_genre (
+                    release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                    genre text NOT NULL
+                );
+                CREATE TABLE release_style (
+                    release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                    style text NOT NULL
+                );
+                CREATE TABLE release_company (
+                    release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                    company_id integer,
+                    company_name text NOT NULL,
+                    entity_type integer,
+                    entity_type_name text NOT NULL
                 );
                 CREATE TABLE cache_metadata (
                     release_id integer PRIMARY KEY REFERENCES release(id) ON DELETE CASCADE,
@@ -952,6 +1036,14 @@ mod tests {
                 width: 600,
                 height: 600,
                 uri: "https://img.discogs.com/confield.jpg".to_string(),
+            }],
+            genres: vec!["Electronic".to_string()],
+            styles: vec!["IDM".to_string(), "Abstract".to_string()],
+            companies: vec![crate::model::ReleaseCompany {
+                company_id: 271046,
+                name: "The Globe Studios".to_string(),
+                entity_type: 23,
+                entity_type_name: "Recorded At".to_string(),
             }],
         }
     }
@@ -1041,6 +1133,40 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row.get::<_, i32>(0), 2);
+
+        // Verify release_genre
+        let rows = client
+            .query(
+                "SELECT genre FROM release_genre WHERE release_id = 1001 ORDER BY genre",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, &str>(0), "Electronic");
+
+        // Verify release_style
+        let rows = client
+            .query(
+                "SELECT style FROM release_style WHERE release_id = 1001 ORDER BY style",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].get::<_, &str>(0), "Abstract");
+        assert_eq!(rows[1].get::<_, &str>(0), "IDM");
+
+        // Verify release_company
+        let rows = client
+            .query(
+                "SELECT company_id, company_name, entity_type, entity_type_name FROM release_company WHERE release_id = 1001",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, Option<i32>>(0), Some(271046));
+        assert_eq!(rows[0].get::<_, &str>(1), "The Globe Studios");
+        assert_eq!(rows[0].get::<_, Option<i32>>(2), Some(23));
+        assert_eq!(rows[0].get::<_, &str>(3), "Recorded At");
     }
 
     #[test]

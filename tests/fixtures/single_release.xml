@@ -54,5 +54,28 @@
       <image type="primary" width="600" height="600" uri="https://img.discogs.com/abc123/release-1001.jpg" />
       <image type="secondary" width="300" height="300" uri="https://img.discogs.com/abc123/release-1001-back.jpg" />
     </images>
+    <genres>
+      <genre>Electronic</genre>
+      <genre>Rock</genre>
+    </genres>
+    <styles>
+      <style>Alternative Rock</style>
+      <style>Art Rock</style>
+      <style>Experimental</style>
+    </styles>
+    <companies>
+      <company>
+        <id>271046</id>
+        <name>The Globe Studios</name>
+        <entity_type>23</entity_type>
+        <entity_type_name>Recorded At</entity_type_name>
+      </company>
+      <company>
+        <id>56025</id>
+        <name>Abbey Road Studios</name>
+        <entity_type>23</entity_type>
+        <entity_type_name>Mixed At</entity_type_name>
+      </company>
+    </companies>
   </release>
 </releases>

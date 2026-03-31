@@ -1,12 +1,15 @@
 //! CSV output writer for Discogs release data.
 //!
-//! Writes 6 CSV files matching the contract expected by `discogs-cache/scripts/import_csv.py`:
+//! Writes 9 CSV files matching the contract expected by `discogs-cache/scripts/import_csv.py`:
 //! - release.csv
 //! - release_artist.csv
 //! - release_label.csv
 //! - release_track.csv
 //! - release_track_artist.csv
 //! - release_image.csv
+//! - release_genre.csv
+//! - release_style.csv
+//! - release_company.csv
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +20,7 @@ use csv::Writer;
 use crate::model::Release;
 use crate::output::ReleaseOutput;
 
-/// Manages 6 CSV writers, one per output file.
+/// Manages 9 CSV writers, one per output file.
 pub struct CsvOutput {
     release: Writer<fs::File>,
     release_artist: Writer<fs::File>,
@@ -25,6 +28,9 @@ pub struct CsvOutput {
     release_track: Writer<fs::File>,
     release_track_artist: Writer<fs::File>,
     release_image: Writer<fs::File>,
+    release_genre: Writer<fs::File>,
+    release_style: Writer<fs::File>,
+    release_company: Writer<fs::File>,
     output_dir: PathBuf,
 }
 
@@ -74,6 +80,21 @@ impl CsvOutput {
         let mut release_image = Self::create_writer(output_dir, "release_image.csv")?;
         release_image.write_record(["release_id", "type", "width", "height", "uri"])?;
 
+        let mut release_genre = Self::create_writer(output_dir, "release_genre.csv")?;
+        release_genre.write_record(["release_id", "genre"])?;
+
+        let mut release_style = Self::create_writer(output_dir, "release_style.csv")?;
+        release_style.write_record(["release_id", "style"])?;
+
+        let mut release_company = Self::create_writer(output_dir, "release_company.csv")?;
+        release_company.write_record([
+            "release_id",
+            "company_id",
+            "company_name",
+            "entity_type",
+            "entity_type_name",
+        ])?;
+
         Ok(CsvOutput {
             release,
             release_artist,
@@ -81,6 +102,9 @@ impl CsvOutput {
             release_track,
             release_track_artist,
             release_image,
+            release_genre,
+            release_style,
+            release_company,
             output_dir: output_dir.to_path_buf(),
         })
     }
@@ -196,6 +220,31 @@ impl CsvOutput {
             ])?;
         }
 
+        // release_genre.csv
+        for genre in &release.genres {
+            self.release_genre.write_record([&id_str, genre])?;
+        }
+
+        // release_style.csv
+        for style in &release.styles {
+            self.release_style.write_record([&id_str, style])?;
+        }
+
+        // release_company.csv
+        for company in &release.companies {
+            let mut b = itoa::Buffer::new();
+            let company_id_str = b.format(company.company_id).to_string();
+            let mut b2 = itoa::Buffer::new();
+            let entity_type_str = b2.format(company.entity_type).to_string();
+            self.release_company.write_record([
+                &id_str,
+                &company_id_str,
+                &company.name,
+                &entity_type_str,
+                &company.entity_type_name,
+            ])?;
+        }
+
         Ok(())
     }
 
@@ -207,6 +256,9 @@ impl CsvOutput {
         self.release_track.flush()?;
         self.release_track_artist.flush()?;
         self.release_image.flush()?;
+        self.release_genre.flush()?;
+        self.release_style.flush()?;
+        self.release_company.flush()?;
         Ok(())
     }
 
@@ -310,6 +362,14 @@ mod tests {
                     uri: "https://img.discogs.com/abc123/release-1001-back.jpg".to_string(),
                 },
             ],
+            genres: vec!["Electronic".to_string(), "Rock".to_string()],
+            styles: vec!["Alternative Rock".to_string(), "Art Rock".to_string()],
+            companies: vec![ReleaseCompany {
+                company_id: 271046,
+                name: "The Globe Studios".to_string(),
+                entity_type: 23,
+                entity_type_name: "Recorded At".to_string(),
+            }],
         }
     }
 
@@ -372,6 +432,18 @@ mod tests {
             "release_image.csv",
             &["release_id", "type", "width", "height", "uri"],
         );
+        check_header("release_genre.csv", &["release_id", "genre"]);
+        check_header("release_style.csv", &["release_id", "style"]);
+        check_header(
+            "release_company.csv",
+            &[
+                "release_id",
+                "company_id",
+                "company_name",
+                "entity_type",
+                "entity_type_name",
+            ],
+        );
     }
 
     #[test]
@@ -405,6 +477,32 @@ mod tests {
         assert_eq!(records.len(), 3);
         assert_eq!(&records[0][1], "1"); // sequence
         assert_eq!(&records[0][3], "Airbag");
+
+        // Check genres
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_genre.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(&records[0][0], "1001");
+        assert_eq!(&records[0][1], "Electronic");
+        assert_eq!(&records[1][1], "Rock");
+
+        // Check styles
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_style.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(&records[0][0], "1001");
+        assert_eq!(&records[0][1], "Alternative Rock");
+        assert_eq!(&records[1][1], "Art Rock");
+
+        // Check companies
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_company.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(&records[0][0], "1001");
+        assert_eq!(&records[0][1], "271046");
+        assert_eq!(&records[0][2], "The Globe Studios");
+        assert_eq!(&records[0][3], "23");
+        assert_eq!(&records[0][4], "Recorded At");
     }
 
     #[test]
@@ -510,6 +608,9 @@ mod tests {
             "release_track.csv",
             "release_track_artist.csv",
             "release_image.csv",
+            "release_genre.csv",
+            "release_style.csv",
+            "release_company.csv",
         ] {
             let content1 = fs::read_to_string(dir1.path().join(filename)).unwrap();
             let content2 = fs::read_to_string(dir2.path().join(filename)).unwrap();
