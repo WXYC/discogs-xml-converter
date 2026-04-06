@@ -4,6 +4,7 @@
     <id>123</id>
     <name>P. Diddy</name>
     <realname>Sean John Combs</realname>
+    <profile>American rapper, singer, record producer, and entrepreneur.</profile>
     <namevariations>
       <name>P Diddy</name>
       <name>Puff Daddy</name>
@@ -33,6 +34,8 @@
     <id>300</id>
     <name>Radiohead</name>
     <realname></realname>
+    <profile>English rock band formed in Abingdon, Oxfordshire, in 1985.&#13;
+The band consists of Thom Yorke, Jonny Greenwood, Colin Greenwood, Ed O'Brien &amp; Philip Selway.</profile>
     <namevariations>
       <name>Radio Head</name>
     </namevariations>

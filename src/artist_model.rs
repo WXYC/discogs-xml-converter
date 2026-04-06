@@ -8,6 +8,7 @@
 pub struct Artist {
     pub id: u64,
     pub name: String,
+    pub profile: String,
     pub aliases: Vec<String>,
     pub name_variations: Vec<String>,
     pub members: Vec<Member>,

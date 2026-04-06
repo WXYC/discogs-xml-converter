@@ -1,6 +1,7 @@
 //! CSV output writer for Discogs artist data.
 //!
-//! Writes 2 CSV files:
+//! Writes 3 CSV files:
+//! - artist.csv (artist_id, artist_name, profile)
 //! - artist_alias.csv (artist_id, artist_name, alias_name)
 //! - artist_member.csv (group_artist_id, group_name, member_artist_id, member_name)
 
@@ -12,14 +13,15 @@ use csv::Writer;
 
 use crate::artist_model::Artist;
 
-/// Manages CSV writers for artist alias and member output.
+/// Manages CSV writers for artist, alias, and member output.
 pub struct ArtistCsvOutput {
+    artist: Writer<fs::File>,
     alias: Writer<fs::File>,
     member: Writer<fs::File>,
 }
 
 impl ArtistCsvOutput {
-    /// Create a new ArtistCsvOutput, writing headers to both files.
+    /// Create a new ArtistCsvOutput, writing headers to all files.
     pub fn new(output_dir: &Path) -> Result<Self> {
         fs::create_dir_all(output_dir).with_context(|| {
             format!(
@@ -27,6 +29,9 @@ impl ArtistCsvOutput {
                 output_dir.display()
             )
         })?;
+
+        let mut artist = Self::create_writer(output_dir, "artist.csv")?;
+        artist.write_record(["artist_id", "artist_name", "profile"])?;
 
         let mut alias = Self::create_writer(output_dir, "artist_alias.csv")?;
         alias.write_record(["artist_id", "artist_name", "alias_name"])?;
@@ -39,7 +44,11 @@ impl ArtistCsvOutput {
             "member_name",
         ])?;
 
-        Ok(ArtistCsvOutput { alias, member })
+        Ok(ArtistCsvOutput {
+            artist,
+            alias,
+            member,
+        })
     }
 
     fn create_writer(dir: &Path, filename: &str) -> Result<Writer<fs::File>> {
@@ -55,6 +64,12 @@ impl ArtistCsvOutput {
     /// they serve the same purpose: alternate names an artist might be credited under.
     pub fn write_artist(&mut self, artist: &Artist) -> Result<()> {
         let id_str = artist.id.to_string();
+
+        // Write artist row (only if profile is non-empty)
+        if !artist.profile.is_empty() {
+            self.artist
+                .write_record([&id_str, &artist.name, &artist.profile])?;
+        }
 
         // Write name variations as aliases
         for nv in &artist.name_variations {
@@ -81,6 +96,7 @@ impl ArtistCsvOutput {
 
     /// Flush all writers.
     pub fn flush(&mut self) -> Result<()> {
+        self.artist.flush()?;
         self.alias.flush()?;
         self.member.flush()?;
         Ok(())
@@ -96,6 +112,7 @@ mod tests {
         Artist {
             id: 123,
             name: "P. Diddy".to_string(),
+            profile: "American rapper, singer, record producer, and entrepreneur.".to_string(),
             name_variations: vec!["P Diddy".to_string(), "Puff Daddy".to_string()],
             aliases: vec!["Sean Combs".to_string(), "Diddy".to_string()],
             members: vec![Member {
@@ -103,6 +120,42 @@ mod tests {
                 name: "Member One".to_string(),
             }],
         }
+    }
+
+    #[test]
+    fn test_write_artist_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        output.write_artist(&sample_artist()).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("artist.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(&records[0][0], "123");
+        assert_eq!(&records[0][1], "P. Diddy");
+        assert_eq!(
+            &records[0][2],
+            "American rapper, singer, record producer, and entrepreneur."
+        );
+    }
+
+    #[test]
+    fn test_skip_empty_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        let artist = Artist {
+            id: 999,
+            name: "No Profile".to_string(),
+            profile: String::new(),
+            ..Default::default()
+        };
+        output.write_artist(&artist).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("artist.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 0);
     }
 
     #[test]

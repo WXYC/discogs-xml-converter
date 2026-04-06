@@ -136,6 +136,11 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
                             artist.id = current_text.trim().parse().unwrap_or(0);
                         }
                     }
+                    b"profile" => {
+                        if !in_namevariations && !in_aliases && !in_members {
+                            artist.profile = current_text.trim().to_string();
+                        }
+                    }
                     b"name" => {
                         let text = current_text.trim().to_string();
                         if !text.is_empty() {
@@ -237,6 +242,29 @@ mod tests {
         assert_eq!(radiohead.members.len(), 5);
         assert_eq!(radiohead.members[0].id, 301);
         assert_eq!(radiohead.members[0].name, "Thom Yorke");
+    }
+
+    #[test]
+    fn test_artist_profile() {
+        let path = fixture_path("artists_fixture.xml");
+        let mut artists = Vec::new();
+        parse_artists(&path, |a| artists.push(a)).unwrap();
+
+        let pdiddy = &artists[0];
+        assert_eq!(
+            pdiddy.profile,
+            "American rapper, singer, record producer, and entrepreneur."
+        );
+
+        // Radiohead has a multi-line profile with HTML entities
+        let radiohead = &artists[2];
+        assert!(radiohead.profile.starts_with("English rock band"));
+        assert!(radiohead.profile.contains("Thom Yorke"));
+        assert!(radiohead.profile.contains("Ed O'Brien & Philip Selway"));
+
+        // Björk has no profile
+        let bjork = &artists[1];
+        assert!(bjork.profile.is_empty());
     }
 
     #[test]
