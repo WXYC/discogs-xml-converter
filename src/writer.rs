@@ -177,14 +177,18 @@ impl CsvOutput {
 
             // Track artists (both main and extra go to the same table)
             for artist in &track.artists {
-                self.csv
-                    .writer(RELEASE_TRACK_ARTIST)
-                    .write_record([&id_str, &sequence, &artist.name])?;
+                self.csv.writer(RELEASE_TRACK_ARTIST).write_record([
+                    &id_str,
+                    &sequence,
+                    &artist.name,
+                ])?;
             }
             for artist in &track.extra_artists {
-                self.csv
-                    .writer(RELEASE_TRACK_ARTIST)
-                    .write_record([&id_str, &sequence, &artist.name])?;
+                self.csv.writer(RELEASE_TRACK_ARTIST).write_record([
+                    &id_str,
+                    &sequence,
+                    &artist.name,
+                ])?;
             }
         }
 

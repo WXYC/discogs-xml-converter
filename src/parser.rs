@@ -438,8 +438,7 @@ fn parse_release_body<R: BufRead>(
                     }
                     b"id" => {
                         if in_companies && in_company {
-                            current_company.company_id =
-                                current_text.trim().parse().unwrap_or(0);
+                            current_company.company_id = current_text.trim().parse().unwrap_or(0);
                         } else if in_track_artists || in_track_extraartists {
                             // Track artist ID - we don't use it
                         } else if in_artists || in_extraartists {
@@ -478,8 +477,7 @@ fn parse_release_body<R: BufRead>(
                     }
                     b"entity_type" => {
                         if in_companies && in_company {
-                            current_company.entity_type =
-                                current_text.trim().parse().unwrap_or(0);
+                            current_company.entity_type = current_text.trim().parse().unwrap_or(0);
                         }
                     }
                     b"company" => {
@@ -595,7 +593,10 @@ mod tests {
         assert_eq!(r.genres, vec!["Electronic", "Rock"]);
 
         // Styles
-        assert_eq!(r.styles, vec!["Alternative Rock", "Art Rock", "Experimental"]);
+        assert_eq!(
+            r.styles,
+            vec!["Alternative Rock", "Art Rock", "Experimental"]
+        );
 
         // Companies
         assert_eq!(r.companies.len(), 2);
