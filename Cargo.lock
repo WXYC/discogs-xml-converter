@@ -1674,6 +1674,7 @@ dependencies = [
 [[package]]
 name = "wxyc-etl"
 version = "0.1.0"
+source = "git+https://github.com/WXYC/wxyc-etl.git?branch=etl-unification%2F3a-combined-deps#39d005783d136ceef095cbf3115c8ecc3bfab645"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
