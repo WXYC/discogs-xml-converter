@@ -339,6 +339,90 @@ mod tests {
         // Our implementation trims only ASCII space, matching the common case
     }
 
+    /// Verify that the local normalize_artist() produces identical output to
+    /// wxyc_etl::text::normalize_artist_name() for a comprehensive set of edge cases.
+    /// This confirms the migration to the shared crate is safe.
+    mod normalization_parity_tests {
+        use super::*;
+        use wxyc_etl::text::normalize_artist_name;
+
+        #[test]
+        fn parity_diacritics() {
+            let cases = ["Björk", "Sigur Rós", "Motörhead", "Hüsker Dü", "Café Tacvba", "Zoé"];
+            for name in cases {
+                assert_eq!(
+                    normalize_artist(name),
+                    normalize_artist_name(name),
+                    "Mismatch for: {name}"
+                );
+            }
+        }
+
+        #[test]
+        fn parity_combining_characters() {
+            let cases = ["Caf\u{0301}", "nu\u{0303}ez", "Bjo\u{0308}rk"];
+            for name in cases {
+                assert_eq!(
+                    normalize_artist(name),
+                    normalize_artist_name(name),
+                    "Mismatch for: {name}"
+                );
+            }
+        }
+
+        #[test]
+        fn parity_whitespace() {
+            let cases = ["  Radiohead  ", "  Björk", "Zoé  ", "  Mixed Case  "];
+            for name in cases {
+                assert_eq!(
+                    normalize_artist(name),
+                    normalize_artist_name(name),
+                    "Mismatch for: {name}"
+                );
+            }
+        }
+
+        #[test]
+        fn parity_case() {
+            let cases = ["RADIOHEAD", "radiohead", "Radiohead", "rAdIoHeAd"];
+            for name in cases {
+                assert_eq!(
+                    normalize_artist(name),
+                    normalize_artist_name(name),
+                    "Mismatch for: {name}"
+                );
+            }
+        }
+
+        #[test]
+        fn parity_empty() {
+            assert_eq!(normalize_artist(""), normalize_artist_name(""));
+        }
+
+        #[test]
+        fn parity_wxyc_artists() {
+            let cases = [
+                "Autechre",
+                "Prince Jammy",
+                "Juana Molina",
+                "Stereolab",
+                "Cat Power",
+                "Jessica Pratt",
+                "Chuquimamani-Condori",
+                "Duke Ellington & John Coltrane",
+                "Sessa",
+                "Anne Gillis",
+            ];
+            for name in cases {
+                assert_eq!(
+                    normalize_artist(name),
+                    normalize_artist_name(name),
+                    "Mismatch for: {name}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_matches_any_with_ids_canonical_name_still_works() {
         let dir = tempfile::tempdir().unwrap();
