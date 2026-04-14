@@ -11,112 +11,92 @@
 //! - release_style.csv
 //! - release_company.csv
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{Context, Result};
-use csv::Writer;
+use anyhow::Result;
+use wxyc_etl::csv_writer::{CsvFileSpec, MultiCsvWriter};
 
 use crate::model::Release;
 use crate::output::ReleaseOutput;
 
-/// Manages 9 CSV writers, one per output file.
+/// CSV file indices (matching spec order in CsvOutput::new).
+const RELEASE: usize = 0;
+const RELEASE_ARTIST: usize = 1;
+const RELEASE_LABEL: usize = 2;
+const RELEASE_TRACK: usize = 3;
+const RELEASE_TRACK_ARTIST: usize = 4;
+const RELEASE_IMAGE: usize = 5;
+const RELEASE_GENRE: usize = 6;
+const RELEASE_STYLE: usize = 7;
+const RELEASE_COMPANY: usize = 8;
+
+/// Manages 9 CSV writers via `MultiCsvWriter`, one per output file.
 pub struct CsvOutput {
-    release: Writer<fs::File>,
-    release_artist: Writer<fs::File>,
-    release_label: Writer<fs::File>,
-    release_track: Writer<fs::File>,
-    release_track_artist: Writer<fs::File>,
-    release_image: Writer<fs::File>,
-    release_genre: Writer<fs::File>,
-    release_style: Writer<fs::File>,
-    release_company: Writer<fs::File>,
-    output_dir: PathBuf,
+    csv: MultiCsvWriter,
 }
 
 impl CsvOutput {
-    /// Create a new CsvOutput, writing headers to all 6 files.
+    /// Create a new CsvOutput, writing headers to all 9 files.
     pub fn new(output_dir: &Path) -> Result<Self> {
-        fs::create_dir_all(output_dir).with_context(|| {
-            format!(
-                "Failed to create output directory: {}",
-                output_dir.display()
-            )
-        })?;
+        let specs = [
+            CsvFileSpec::new(
+                "release.csv",
+                &[
+                    "id",
+                    "status",
+                    "title",
+                    "country",
+                    "released",
+                    "notes",
+                    "data_quality",
+                    "master_id",
+                    "format",
+                ],
+            ),
+            CsvFileSpec::new(
+                "release_artist.csv",
+                &[
+                    "release_id",
+                    "artist_id",
+                    "artist_name",
+                    "extra",
+                    "anv",
+                    "position",
+                    "join_field",
+                ],
+            ),
+            CsvFileSpec::new("release_label.csv", &["release_id", "label", "catno"]),
+            CsvFileSpec::new(
+                "release_track.csv",
+                &["release_id", "sequence", "position", "title", "duration"],
+            ),
+            CsvFileSpec::new(
+                "release_track_artist.csv",
+                &["release_id", "track_sequence", "artist_name"],
+            ),
+            CsvFileSpec::new(
+                "release_image.csv",
+                &["release_id", "type", "width", "height", "uri"],
+            ),
+            CsvFileSpec::new("release_genre.csv", &["release_id", "genre"]),
+            CsvFileSpec::new("release_style.csv", &["release_id", "style"]),
+            CsvFileSpec::new(
+                "release_company.csv",
+                &[
+                    "release_id",
+                    "company_id",
+                    "company_name",
+                    "entity_type",
+                    "entity_type_name",
+                ],
+            ),
+        ];
 
-        let mut release = Self::create_writer(output_dir, "release.csv")?;
-        release.write_record([
-            "id",
-            "status",
-            "title",
-            "country",
-            "released",
-            "notes",
-            "data_quality",
-            "master_id",
-            "format",
-        ])?;
-
-        let mut release_artist = Self::create_writer(output_dir, "release_artist.csv")?;
-        release_artist.write_record([
-            "release_id",
-            "artist_id",
-            "artist_name",
-            "extra",
-            "anv",
-            "position",
-            "join_field",
-        ])?;
-
-        let mut release_label = Self::create_writer(output_dir, "release_label.csv")?;
-        release_label.write_record(["release_id", "label", "catno"])?;
-
-        let mut release_track = Self::create_writer(output_dir, "release_track.csv")?;
-        release_track.write_record(["release_id", "sequence", "position", "title", "duration"])?;
-
-        let mut release_track_artist = Self::create_writer(output_dir, "release_track_artist.csv")?;
-        release_track_artist.write_record(["release_id", "track_sequence", "artist_name"])?;
-
-        let mut release_image = Self::create_writer(output_dir, "release_image.csv")?;
-        release_image.write_record(["release_id", "type", "width", "height", "uri"])?;
-
-        let mut release_genre = Self::create_writer(output_dir, "release_genre.csv")?;
-        release_genre.write_record(["release_id", "genre"])?;
-
-        let mut release_style = Self::create_writer(output_dir, "release_style.csv")?;
-        release_style.write_record(["release_id", "style"])?;
-
-        let mut release_company = Self::create_writer(output_dir, "release_company.csv")?;
-        release_company.write_record([
-            "release_id",
-            "company_id",
-            "company_name",
-            "entity_type",
-            "entity_type_name",
-        ])?;
-
-        Ok(CsvOutput {
-            release,
-            release_artist,
-            release_label,
-            release_track,
-            release_track_artist,
-            release_image,
-            release_genre,
-            release_style,
-            release_company,
-            output_dir: output_dir.to_path_buf(),
-        })
+        let csv = MultiCsvWriter::new(output_dir, &specs)?;
+        Ok(CsvOutput { csv })
     }
 
-    fn create_writer(dir: &Path, filename: &str) -> Result<Writer<fs::File>> {
-        let path = dir.join(filename);
-        let file = fs::File::create(&path)
-            .with_context(|| format!("Failed to create {}", path.display()))?;
-        Ok(Writer::from_writer(file))
-    }
-
-    /// Write a release and all its child records to the 6 CSV files.
+    /// Write a release and all its child records to the 9 CSV files.
     pub fn write_release(&mut self, release: &Release) -> Result<()> {
         let mut ibuf = itoa::Buffer::new();
         let id_str = ibuf.format(release.id).to_string();
@@ -129,7 +109,7 @@ impl CsvOutput {
             .unwrap_or_default();
 
         // release.csv
-        self.release.write_record([
+        self.csv.writer(RELEASE).write_record([
             &id_str,
             &release.status,
             &release.title,
@@ -147,7 +127,7 @@ impl CsvOutput {
             let artist_id_str = b.format(artist.artist_id).to_string();
             let mut b2 = itoa::Buffer::new();
             let position_str = b2.format(artist.position).to_string();
-            self.release_artist.write_record([
+            self.csv.writer(RELEASE_ARTIST).write_record([
                 &id_str,
                 &artist_id_str,
                 &artist.name,
@@ -164,7 +144,7 @@ impl CsvOutput {
             let artist_id_str = b.format(artist.artist_id).to_string();
             let mut b2 = itoa::Buffer::new();
             let position_str = b2.format(artist.position).to_string();
-            self.release_artist.write_record([
+            self.csv.writer(RELEASE_ARTIST).write_record([
                 &id_str,
                 &artist_id_str,
                 &artist.name,
@@ -177,7 +157,8 @@ impl CsvOutput {
 
         // release_label.csv
         for label in &release.labels {
-            self.release_label
+            self.csv
+                .writer(RELEASE_LABEL)
                 .write_record([&id_str, &label.name, &label.catno])?;
         }
 
@@ -186,7 +167,7 @@ impl CsvOutput {
             let mut b = itoa::Buffer::new();
             let sequence = b.format(idx + 1).to_string();
 
-            self.release_track.write_record([
+            self.csv.writer(RELEASE_TRACK).write_record([
                 &id_str,
                 &sequence,
                 &track.position,
@@ -196,11 +177,13 @@ impl CsvOutput {
 
             // Track artists (both main and extra go to the same table)
             for artist in &track.artists {
-                self.release_track_artist
+                self.csv
+                    .writer(RELEASE_TRACK_ARTIST)
                     .write_record([&id_str, &sequence, &artist.name])?;
             }
             for artist in &track.extra_artists {
-                self.release_track_artist
+                self.csv
+                    .writer(RELEASE_TRACK_ARTIST)
                     .write_record([&id_str, &sequence, &artist.name])?;
             }
         }
@@ -211,7 +194,7 @@ impl CsvOutput {
             let width_str = bw.format(image.width).to_string();
             let mut bh = itoa::Buffer::new();
             let height_str = bh.format(image.height).to_string();
-            self.release_image.write_record([
+            self.csv.writer(RELEASE_IMAGE).write_record([
                 &id_str,
                 &image.image_type,
                 &width_str,
@@ -222,12 +205,16 @@ impl CsvOutput {
 
         // release_genre.csv
         for genre in &release.genres {
-            self.release_genre.write_record([&id_str, genre])?;
+            self.csv
+                .writer(RELEASE_GENRE)
+                .write_record([&id_str, genre])?;
         }
 
         // release_style.csv
         for style in &release.styles {
-            self.release_style.write_record([&id_str, style])?;
+            self.csv
+                .writer(RELEASE_STYLE)
+                .write_record([&id_str, style])?;
         }
 
         // release_company.csv
@@ -236,7 +223,7 @@ impl CsvOutput {
             let company_id_str = b.format(company.company_id).to_string();
             let mut b2 = itoa::Buffer::new();
             let entity_type_str = b2.format(company.entity_type).to_string();
-            self.release_company.write_record([
+            self.csv.writer(RELEASE_COMPANY).write_record([
                 &id_str,
                 &company_id_str,
                 &company.name,
@@ -250,21 +237,12 @@ impl CsvOutput {
 
     /// Flush all writers.
     pub fn flush(&mut self) -> Result<()> {
-        self.release.flush()?;
-        self.release_artist.flush()?;
-        self.release_label.flush()?;
-        self.release_track.flush()?;
-        self.release_track_artist.flush()?;
-        self.release_image.flush()?;
-        self.release_genre.flush()?;
-        self.release_style.flush()?;
-        self.release_company.flush()?;
-        Ok(())
+        self.csv.flush_all()
     }
 
     /// Get the output directory path.
     pub fn output_dir(&self) -> &Path {
-        &self.output_dir
+        self.csv.output_dir()
     }
 }
 
@@ -612,8 +590,8 @@ mod tests {
             "release_style.csv",
             "release_company.csv",
         ] {
-            let content1 = fs::read_to_string(dir1.path().join(filename)).unwrap();
-            let content2 = fs::read_to_string(dir2.path().join(filename)).unwrap();
+            let content1 = std::fs::read_to_string(dir1.path().join(filename)).unwrap();
+            let content2 = std::fs::read_to_string(dir2.path().join(filename)).unwrap();
             assert_eq!(
                 content1, content2,
                 "Non-deterministic output for {}",
