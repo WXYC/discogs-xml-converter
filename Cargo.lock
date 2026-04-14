@@ -355,7 +355,6 @@ dependencies = [
  "quick-xml",
  "rayon",
  "tempfile",
- "unicode-normalization",
  "wxyc-etl",
 ]
 

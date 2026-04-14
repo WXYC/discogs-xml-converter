@@ -1,104 +1,19 @@
 //! Artist name normalization and filtering.
 //!
-//! Normalizes artist names using NFKD decomposition with combining character
-//! removal, matching the behavior of `filter_csv.py:normalize_artist()` in
-//! the discogs-cache repo.
+//! Normalizes artist names by delegating to `wxyc_etl::text::normalize_artist_name()`,
+//! which applies NFKD decomposition, strips combining characters (diacritics),
+//! lowercases, and trims whitespace.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use unicode_normalization::UnicodeNormalization;
-
 /// Normalize an artist name for matching.
 ///
-/// Applies NFKD decomposition, strips combining characters (diacritics),
-/// lowercases, and trims whitespace. This matches the Python implementation:
-///
-/// ```python
-/// nfkd = unicodedata.normalize("NFKD", name)
-/// stripped = "".join(c for c in nfkd if not unicodedata.combining(c))
-/// return stripped.lower().strip()
-/// ```
+/// Delegates to [`wxyc_etl::text::normalize_artist_name()`], the shared
+/// implementation that all WXYC ETL repos use for normalization parity.
 pub fn normalize_artist(name: &str) -> String {
-    // Single-pass: NFKD decompose, skip combining chars, lowercase, collect.
-    // This reduces from 3 allocations (collect + to_lowercase + trim/to_string)
-    // to 1 (or 2 if the result needs trimming).
-    let mut result = String::with_capacity(name.len());
-    for c in name.nfkd() {
-        if !is_combining(c) {
-            for lc in c.to_lowercase() {
-                result.push(lc);
-            }
-        }
-    }
-    let trimmed = result.trim_matches(' ');
-    if trimmed.len() == result.len() {
-        result
-    } else {
-        trimmed.to_string()
-    }
-}
-
-/// Check if a character is a Unicode combining character (category M).
-fn is_combining(c: char) -> bool {
-    // Combining characters are in the Unicode General Category "M"
-    // (Mark). We check the three subcategories:
-    // - Mn (Nonspacing_Mark)
-    // - Mc (Spacing_Mark)
-    // - Me (Enclosing_Mark)
-    //
-    // The ranges cover all combining marks in BMP which is sufficient
-    // for Discogs data.
-    matches!(
-        unicode_general_category(c),
-        GeneralCategory::Mn | GeneralCategory::Mc | GeneralCategory::Me
-    )
-}
-
-#[derive(PartialEq)]
-enum GeneralCategory {
-    Mn,
-    Mc,
-    Me,
-    Other,
-}
-
-fn unicode_general_category(c: char) -> GeneralCategory {
-    // Use the char's Unicode properties. Combining characters
-    // are in these ranges. We use a simple heuristic based on
-    // Unicode block ranges for the Combining Diacritical Marks.
-    let cp = c as u32;
-
-    // Check standard combining character ranges
-    if (0x0300..=0x036F).contains(&cp)       // Combining Diacritical Marks
-        || (0x1AB0..=0x1AFF).contains(&cp)   // Combining Diacritical Marks Extended
-        || (0x1DC0..=0x1DFF).contains(&cp)   // Combining Diacritical Marks Supplement
-        || (0x20D0..=0x20FF).contains(&cp)   // Combining Diacritical Marks for Symbols
-        || (0xFE20..=0xFE2F).contains(&cp)
-    // Combining Half Marks
-    {
-        return GeneralCategory::Mn;
-    }
-
-    // Spacing combining marks (Mc) - common South Asian scripts
-    if (0x0903..=0x0903).contains(&cp)
-        || (0x093B..=0x093B).contains(&cp)
-        || (0x093E..=0x0940).contains(&cp)
-        || (0x0949..=0x094C).contains(&cp)
-    {
-        return GeneralCategory::Mc;
-    }
-
-    // Enclosing marks (Me)
-    if (0x0488..=0x0489).contains(&cp)
-        || (0x20DD..=0x20E0).contains(&cp)
-        || (0x20E2..=0x20E4).contains(&cp)
-    {
-        return GeneralCategory::Me;
-    }
-
-    GeneralCategory::Other
+    wxyc_etl::text::normalize_artist_name(name)
 }
 
 /// Artist filter backed by a normalized HashSet, with optional alias support.
