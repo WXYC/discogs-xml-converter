@@ -263,7 +263,14 @@ mod tests {
 
         #[test]
         fn parity_diacritics() {
-            let cases = ["Björk", "Sigur Rós", "Motörhead", "Hüsker Dü", "Café Tacvba", "Zoé"];
+            let cases = [
+                "Björk",
+                "Sigur Rós",
+                "Motörhead",
+                "Hüsker Dü",
+                "Café Tacvba",
+                "Zoé",
+            ];
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
