@@ -14,6 +14,105 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 #[test]
+fn test_missing_artists_xml_in_directory_mode() {
+    // Directory mode with releases.xml but no artists.xml -- should succeed
+    // with a clear log message about missing artists, not crash
+    let input_dir = tempfile::tempdir().unwrap();
+    let output_dir = tempfile::tempdir().unwrap();
+
+    // Only copy releases -- deliberately omit artists.xml
+    std::fs::copy(
+        fixture_path("releases_fixture.xml"),
+        input_dir.path().join("releases.xml"),
+    )
+    .unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .arg(input_dir.path().to_str().unwrap())
+        .arg("--output-dir")
+        .arg(output_dir.path().to_str().unwrap())
+        .assert()
+        .success();
+
+    // Releases should still be processed
+    assert!(
+        output_dir.path().join("release.csv").exists(),
+        "release.csv should be created even without artists.xml"
+    );
+
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(count, 16, "All releases should be processed");
+
+    // artist_alias.csv should NOT exist (no artists.xml to process)
+    assert!(
+        !output_dir.path().join("artist_alias.csv").exists(),
+        "artist_alias.csv should not exist when artists.xml is missing"
+    );
+}
+
+#[test]
+fn test_release_with_many_artists_no_oom() {
+    // A release with 1000+ artists should be processed without running out of memory
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = tempfile::tempdir().unwrap();
+
+    // Generate an XML release with 1000+ artists
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <release id="99999" status="Accepted">
+    <title>WXYC Compilation Vol. 1</title>
+    <artists>
+"#,
+    );
+
+    for i in 1..=1200 {
+        xml.push_str(&format!(
+            "      <artist><id>{}</id><name>Artist {}</name><anv></anv><join>,</join></artist>\n",
+            i, i
+        ));
+    }
+
+    xml.push_str(
+        r#"    </artists>
+    <labels><label catno="WXYC-001" name="WXYC Records" /></labels>
+    <formats><format name="CD" qty="1" /></formats>
+    <tracklist>
+      <track><position>1</position><title>Track 1</title><duration>3:00</duration></track>
+    </tracklist>
+  </release>
+</releases>"#,
+    );
+
+    let xml_path = dir.path().join("many_artists.xml");
+    std::fs::write(&xml_path, xml).unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .arg(xml_path.to_str().unwrap())
+        .arg("--output-dir")
+        .arg(output_dir.path().to_str().unwrap())
+        .assert()
+        .success();
+
+    // Verify the release was written
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(count, 1, "The many-artists release should be written");
+
+    // Verify all 1200 artists are in release_artist.csv
+    let mut rdr =
+        csv::Reader::from_path(output_dir.path().join("release_artist.csv")).unwrap();
+    let artist_count = rdr.records().count();
+    assert_eq!(
+        artist_count, 1200,
+        "All 1200 artists should be in release_artist.csv"
+    );
+}
+
+#[test]
 fn test_help() {
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
