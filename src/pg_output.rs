@@ -3,195 +3,22 @@
 //! Provides `PgOutput`, which implements `ReleaseOutput` to stream releases
 //! directly into PostgreSQL via COPY, eliminating the CSV round-trip.
 //!
-//! Also contains pure transform functions that replicate the logic from
-//! `discogs-cache/scripts/import_csv.py`.
+//! COPY TEXT escaping, batch buffering, deduplication, and helper functions
+//! are provided by the `wxyc-etl` crate. Domain-specific transforms (artwork
+//! URL population, track count table, cache_metadata insertion) remain local.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use itoa;
 use log::info;
+use wxyc_etl::pg::{
+    escape_copy_text_into, extract_year, pick_artwork_url, write_copy_int, ArtistDedup,
+    BatchCopier, LabelDedup, TrackArtistDedup,
+};
 
 use crate::model::Release;
 use crate::output::ReleaseOutput;
-
-/// Extract a 4-digit year from a Discogs "released" field.
-///
-/// Matches the behavior of `import_csv.py:extract_year()`.
-pub fn extract_year(released: &str) -> Option<i16> {
-    if released.len() >= 4 && released.as_bytes()[..4].iter().all(|b| b.is_ascii_digit()) {
-        released[..4].parse().ok()
-    } else {
-        None
-    }
-}
-
-/// Convert an empty string to None.
-pub fn empty_to_none(s: &str) -> Option<&str> {
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
-}
-
-/// Escape a string for PostgreSQL COPY TEXT format.
-///
-/// COPY TEXT uses tab-delimited rows with backslash escaping:
-/// - `\` → `\\`
-/// - newline → `\n`
-/// - carriage return → `\r`
-/// - tab → `\t`
-pub fn escape_copy_text(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Format a value for a COPY TEXT column.
-///
-/// None values become `\N` (PostgreSQL NULL). Non-empty strings are escaped.
-fn copy_value(val: Option<&str>) -> String {
-    match val {
-        None => "\\N".to_string(),
-        Some("") => "\\N".to_string(),
-        Some(s) => escape_copy_text(s),
-    }
-}
-
-/// Format a COPY TEXT row from a slice of column values.
-///
-/// Joins values with tabs and appends a newline.
-pub fn copy_line(values: &[Option<&str>]) -> String {
-    let mut line = String::new();
-    for (i, val) in values.iter().enumerate() {
-        if i > 0 {
-            line.push('\t');
-        }
-        line.push_str(&copy_value(*val));
-    }
-    line.push('\n');
-    line
-}
-
-/// Escape a string for PostgreSQL COPY TEXT format, appending directly to a byte buffer.
-///
-/// This is the zero-allocation counterpart of `escape_copy_text()`. Instead of
-/// returning a new `String`, it pushes escaped bytes directly into `buf`.
-pub fn escape_copy_text_into(buf: &mut Vec<u8>, s: &str) {
-    for &b in s.as_bytes() {
-        match b {
-            b'\\' => buf.extend_from_slice(b"\\\\"),
-            b'\n' => buf.extend_from_slice(b"\\n"),
-            b'\r' => buf.extend_from_slice(b"\\r"),
-            b'\t' => buf.extend_from_slice(b"\\t"),
-            _ => buf.push(b),
-        }
-    }
-}
-
-/// Write a COPY TEXT row directly into a byte buffer.
-///
-/// This is the zero-allocation counterpart of `copy_line()`. Values are
-/// tab-separated; `None` and empty strings become `\N` (PostgreSQL NULL).
-pub fn write_copy_row(buf: &mut Vec<u8>, values: &[Option<&str>]) {
-    for (i, val) in values.iter().enumerate() {
-        if i > 0 {
-            buf.push(b'\t');
-        }
-        match val {
-            None | Some("") => buf.extend_from_slice(b"\\N"),
-            Some(s) => escape_copy_text_into(buf, s),
-        }
-    }
-    buf.push(b'\n');
-}
-
-/// Write an integer as a COPY TEXT column value directly into a byte buffer.
-///
-/// Uses `itoa` for zero-allocation integer formatting.
-fn write_copy_int(buf: &mut Vec<u8>, n: impl itoa::Integer) {
-    let mut itoa_buf = itoa::Buffer::new();
-    buf.extend_from_slice(itoa_buf.format(n).as_bytes());
-}
-
-/// Pick the best artwork URL from a release's images.
-///
-/// Prefers the first "primary" image; falls back to the first image of any type.
-pub fn pick_artwork_url(images: &[crate::model::ReleaseImage]) -> Option<&str> {
-    let primary = images
-        .iter()
-        .find(|img| img.image_type == "primary")
-        .map(|img| img.uri.as_str());
-    primary.or_else(|| images.first().map(|img| img.uri.as_str()))
-}
-
-/// Dedup tracker for (release_id, artist_name) pairs in release_artist table.
-#[derive(Default)]
-pub struct ArtistDedup {
-    seen: HashSet<(u64, String)>,
-}
-
-impl ArtistDedup {
-    pub fn new() -> Self {
-        Self {
-            seen: HashSet::new(),
-        }
-    }
-
-    /// Returns true if this is the first occurrence (not a duplicate).
-    pub fn insert(&mut self, release_id: u64, artist_name: &str) -> bool {
-        self.seen.insert((release_id, artist_name.to_string()))
-    }
-}
-
-/// Dedup tracker for (release_id, track_sequence, artist_name) in release_track_artist.
-#[derive(Default)]
-pub struct TrackArtistDedup {
-    seen: HashSet<(u64, u32, String)>,
-}
-
-impl TrackArtistDedup {
-    pub fn new() -> Self {
-        Self {
-            seen: HashSet::new(),
-        }
-    }
-
-    /// Returns true if this is the first occurrence (not a duplicate).
-    pub fn insert(&mut self, release_id: u64, track_seq: u32, artist_name: &str) -> bool {
-        self.seen
-            .insert((release_id, track_seq, artist_name.to_string()))
-    }
-}
-
-/// Dedup tracker for (release_id, label_name) pairs in release_label table.
-#[derive(Default)]
-pub struct LabelDedup {
-    seen: HashSet<(u64, String)>,
-}
-
-impl LabelDedup {
-    pub fn new() -> Self {
-        Self {
-            seen: HashSet::new(),
-        }
-    }
-
-    /// Returns true if this is the first occurrence (not a duplicate).
-    pub fn insert(&mut self, release_id: u64, label_name: &str) -> bool {
-        self.seen.insert((release_id, label_name.to_string()))
-    }
-}
 
 /// Accumulated artwork URLs for post-import UPDATE.
 pub type ArtworkMap = HashMap<u64, String>;
@@ -206,22 +33,12 @@ pub type TrackCountMap = HashMap<u64, u32>;
 /// then child tables.
 pub struct PgOutput {
     client: postgres::Client,
-    buf_release: Vec<u8>,
-    buf_release_artist: Vec<u8>,
-    buf_release_label: Vec<u8>,
-    buf_release_track: Vec<u8>,
-    buf_release_track_artist: Vec<u8>,
-    buf_release_genre: Vec<u8>,
-    buf_release_style: Vec<u8>,
-    buf_release_company: Vec<u8>,
+    copier: BatchCopier,
     artist_dedup: ArtistDedup,
     label_dedup: LabelDedup,
     track_artist_dedup: TrackArtistDedup,
     artwork: ArtworkMap,
     track_counts: TrackCountMap,
-    batch_count: usize,
-    batch_size: usize,
-    total_written: usize,
 }
 
 impl PgOutput {
@@ -229,41 +46,59 @@ impl PgOutput {
     pub fn new(database_url: &str, batch_size: usize) -> Result<Self> {
         let client = postgres::Client::connect(database_url, postgres::NoTls)
             .with_context(|| format!("Failed to connect to PostgreSQL at {}", database_url))?;
+
+        let copier = BatchCopier::new(
+            &[
+                (
+                    "release",
+                    "COPY release (id, title, release_year, country, master_id) FROM STDIN",
+                ),
+                (
+                    "release_artist",
+                    "COPY release_artist (release_id, artist_id, artist_name, extra) FROM STDIN",
+                ),
+                (
+                    "release_label",
+                    "COPY release_label (release_id, label_name) FROM STDIN",
+                ),
+                (
+                    "release_track",
+                    "COPY release_track (release_id, sequence, position, title, duration) FROM STDIN",
+                ),
+                (
+                    "release_track_artist",
+                    "COPY release_track_artist (release_id, track_sequence, artist_name) FROM STDIN",
+                ),
+                (
+                    "release_genre",
+                    "COPY release_genre (release_id, genre) FROM STDIN",
+                ),
+                (
+                    "release_style",
+                    "COPY release_style (release_id, style) FROM STDIN",
+                ),
+                (
+                    "release_company",
+                    "COPY release_company (release_id, company_id, company_name, entity_type, entity_type_name) FROM STDIN",
+                ),
+            ],
+            batch_size,
+        );
+
         Ok(Self {
             client,
-            buf_release: Vec::new(),
-            buf_release_artist: Vec::new(),
-            buf_release_label: Vec::new(),
-            buf_release_track: Vec::new(),
-            buf_release_track_artist: Vec::new(),
-            buf_release_genre: Vec::new(),
-            buf_release_style: Vec::new(),
-            buf_release_company: Vec::new(),
+            copier,
             artist_dedup: ArtistDedup::new(),
             label_dedup: LabelDedup::new(),
             track_artist_dedup: TrackArtistDedup::new(),
             artwork: HashMap::new(),
             track_counts: HashMap::new(),
-            batch_count: 0,
-            batch_size,
-            total_written: 0,
         })
     }
 
     /// Number of releases flushed to PostgreSQL so far.
     pub fn total_written(&self) -> usize {
-        self.total_written
-    }
-
-    /// COPY a buffer of COPY TEXT data into a table. No-op if buffer is empty.
-    fn copy_buffer(client: &mut postgres::Client, stmt: &str, buf: &[u8]) -> Result<()> {
-        if buf.is_empty() {
-            return Ok(());
-        }
-        let mut writer = client.copy_in(stmt)?;
-        writer.write_all(buf)?;
-        writer.finish()?;
-        Ok(())
+        self.copier.total_written()
     }
 }
 
@@ -276,7 +111,7 @@ impl ReleaseOutput for PgOutput {
 
         // release row: id, title, release_year, country, master_id
         {
-            let buf = &mut self.buf_release;
+            let buf = self.copier.buffer("release");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             escape_copy_text_into(buf, &release.title);
@@ -304,10 +139,13 @@ impl ReleaseOutput for PgOutput {
             if artist.name.is_empty() {
                 continue;
             }
-            if !self.artist_dedup.insert(release.id, &artist.name) {
+            if !self
+                .artist_dedup
+                .insert((release.id, artist.name.to_string()))
+            {
                 continue;
             }
-            let buf = &mut self.buf_release_artist;
+            let buf = self.copier.buffer("release_artist");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             write_copy_int(buf, artist.artist_id);
@@ -321,10 +159,13 @@ impl ReleaseOutput for PgOutput {
             if artist.name.is_empty() {
                 continue;
             }
-            if !self.artist_dedup.insert(release.id, &artist.name) {
+            if !self
+                .artist_dedup
+                .insert((release.id, artist.name.to_string()))
+            {
                 continue;
             }
-            let buf = &mut self.buf_release_artist;
+            let buf = self.copier.buffer("release_artist");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             write_copy_int(buf, artist.artist_id);
@@ -338,10 +179,13 @@ impl ReleaseOutput for PgOutput {
             if label.name.is_empty() {
                 continue;
             }
-            if !self.label_dedup.insert(release.id, &label.name) {
+            if !self
+                .label_dedup
+                .insert((release.id, label.name.to_string()))
+            {
                 continue;
             }
-            let buf = &mut self.buf_release_label;
+            let buf = self.copier.buffer("release_label");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             escape_copy_text_into(buf, &label.name);
@@ -363,7 +207,7 @@ impl ReleaseOutput for PgOutput {
 
             // Write track row directly
             {
-                let buf = &mut self.buf_release_track;
+                let buf = self.copier.buffer("release_track");
                 write_copy_int(buf, release.id);
                 buf.push(b'\t');
                 write_copy_int(buf, seq);
@@ -388,11 +232,11 @@ impl ReleaseOutput for PgOutput {
             for artist in track.artists.iter().chain(track.extra_artists.iter()) {
                 if !self
                     .track_artist_dedup
-                    .insert(release.id, seq, &artist.name)
+                    .insert((release.id, seq, artist.name.to_string()))
                 {
                     continue;
                 }
-                let buf = &mut self.buf_release_track_artist;
+                let buf = self.copier.buffer("release_track_artist");
                 write_copy_int(buf, release.id);
                 buf.push(b'\t');
                 write_copy_int(buf, seq);
@@ -407,7 +251,7 @@ impl ReleaseOutput for PgOutput {
             if genre.is_empty() {
                 continue;
             }
-            let buf = &mut self.buf_release_genre;
+            let buf = self.copier.buffer("release_genre");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             escape_copy_text_into(buf, genre);
@@ -419,7 +263,7 @@ impl ReleaseOutput for PgOutput {
             if style.is_empty() {
                 continue;
             }
-            let buf = &mut self.buf_release_style;
+            let buf = self.copier.buffer("release_style");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             escape_copy_text_into(buf, style);
@@ -431,7 +275,7 @@ impl ReleaseOutput for PgOutput {
             if company.name.is_empty() {
                 continue;
             }
-            let buf = &mut self.buf_release_company;
+            let buf = self.copier.buffer("release_company");
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             write_copy_int(buf, company.company_id);
@@ -450,83 +294,18 @@ impl ReleaseOutput for PgOutput {
         }
 
         // Flush if batch is full
-        self.batch_count += 1;
-        if self.batch_count >= self.batch_size {
-            self.flush()?;
-        }
+        self.copier.count_and_maybe_flush(&mut self.client)?;
 
         Ok(())
     }
 
     fn flush(&mut self) -> Result<()> {
-        if self.batch_count == 0 {
-            return Ok(());
-        }
-
-        // FK-safe ordering: release (parent) first, then child tables
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release (id, title, release_year, country, master_id) FROM STDIN",
-            &self.buf_release,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_artist (release_id, artist_id, artist_name, extra) FROM STDIN",
-            &self.buf_release_artist,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_label (release_id, label_name) FROM STDIN",
-            &self.buf_release_label,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_track (release_id, sequence, position, title, duration) FROM STDIN",
-            &self.buf_release_track,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_track_artist (release_id, track_sequence, artist_name) FROM STDIN",
-            &self.buf_release_track_artist,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_genre (release_id, genre) FROM STDIN",
-            &self.buf_release_genre,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_style (release_id, style) FROM STDIN",
-            &self.buf_release_style,
-        )?;
-        Self::copy_buffer(
-            &mut self.client,
-            "COPY release_company (release_id, company_id, company_name, entity_type, entity_type_name) FROM STDIN",
-            &self.buf_release_company,
-        )?;
-
-        self.total_written += self.batch_count;
-        info!(
-            "Flushed {} releases to PostgreSQL ({} total)",
-            self.batch_count, self.total_written
-        );
-
-        self.buf_release.clear();
-        self.buf_release_artist.clear();
-        self.buf_release_label.clear();
-        self.buf_release_track.clear();
-        self.buf_release_track_artist.clear();
-        self.buf_release_genre.clear();
-        self.buf_release_style.clear();
-        self.buf_release_company.clear();
-        self.batch_count = 0;
-
-        Ok(())
+        self.copier.flush(&mut self.client)
     }
 
     fn finish(&mut self) -> Result<()> {
         // 1. Flush remaining buffered rows
-        PgOutput::flush(self)?;
+        self.copier.flush(&mut self.client)?;
 
         // 2. Artwork URL population via temp table + UPDATE JOIN
         if !self.artwork.is_empty() {
@@ -602,10 +381,9 @@ impl ReleaseOutput for PgOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::model::ReleaseImage;
+    use wxyc_etl::pg::{copy_line, empty_to_none, escape_copy_text, write_copy_row};
 
-    // -- extract_year tests --
+    // -- extract_year tests (now delegating to wxyc_etl) --
 
     #[test]
     fn test_extract_year_full_date() {
@@ -715,14 +493,14 @@ mod tests {
     #[test]
     fn test_escape_copy_text_into_plain() {
         let mut buf = Vec::new();
-        escape_copy_text_into(&mut buf, "hello world");
+        wxyc_etl::pg::escape_copy_text_into(&mut buf, "hello world");
         assert_eq!(buf, b"hello world");
     }
 
     #[test]
     fn test_escape_copy_text_into_special_chars() {
         let mut buf = Vec::new();
-        escape_copy_text_into(&mut buf, "line1\nline2\ttab\\slash\rret");
+        wxyc_etl::pg::escape_copy_text_into(&mut buf, "line1\nline2\ttab\\slash\rret");
         assert_eq!(buf, b"line1\\nline2\\ttab\\\\slash\\rret");
     }
 
@@ -731,7 +509,7 @@ mod tests {
         let cases = ["hello", "a\tb", "a\nb", "a\\b", "a\rb", "mix\t\n\\end"];
         for s in &cases {
             let mut buf = Vec::new();
-            escape_copy_text_into(&mut buf, s);
+            wxyc_etl::pg::escape_copy_text_into(&mut buf, s);
             assert_eq!(
                 String::from_utf8(buf).unwrap(),
                 escape_copy_text(s),
@@ -800,25 +578,28 @@ mod tests {
     #[test]
     fn test_write_copy_int_u64() {
         let mut buf = Vec::new();
-        write_copy_int(&mut buf, 12345u64);
+        wxyc_etl::pg::write_copy_int(&mut buf, 12345u64);
         assert_eq!(buf, b"12345");
     }
 
     #[test]
     fn test_write_copy_int_i16() {
         let mut buf = Vec::new();
-        write_copy_int(&mut buf, 2001i16);
+        wxyc_etl::pg::write_copy_int(&mut buf, 2001i16);
         assert_eq!(buf, b"2001");
     }
 
     #[test]
     fn test_write_copy_int_u32() {
         let mut buf = Vec::new();
-        write_copy_int(&mut buf, 0u32);
+        wxyc_etl::pg::write_copy_int(&mut buf, 0u32);
         assert_eq!(buf, b"0");
     }
 
     // -- artwork tests --
+
+    use super::*;
+    use crate::model::ReleaseImage;
 
     #[test]
     fn test_artwork_primary_preferred() {
@@ -870,39 +651,39 @@ mod tests {
         assert_eq!(pick_artwork_url(&images), None);
     }
 
-    // -- dedup tests --
+    // -- dedup tests (now using wxyc_etl types) --
 
     #[test]
     fn test_dedup_release_artist() {
         let mut dedup = ArtistDedup::new();
-        assert!(dedup.insert(1001, "Autechre"));
-        assert!(dedup.insert(1001, "Boards of Canada"));
+        assert!(dedup.insert((1001, "Autechre".to_string())));
+        assert!(dedup.insert((1001, "Boards of Canada".to_string())));
         // Duplicate
-        assert!(!dedup.insert(1001, "Autechre"));
+        assert!(!dedup.insert((1001, "Autechre".to_string())));
         // Same artist, different release
-        assert!(dedup.insert(1002, "Autechre"));
+        assert!(dedup.insert((1002, "Autechre".to_string())));
     }
 
     #[test]
     fn test_dedup_track_artist() {
         let mut dedup = TrackArtistDedup::new();
-        assert!(dedup.insert(1001, 1, "Autechre"));
-        assert!(dedup.insert(1001, 2, "Autechre"));
+        assert!(dedup.insert((1001, 1, "Autechre".to_string())));
+        assert!(dedup.insert((1001, 2, "Autechre".to_string())));
         // Duplicate
-        assert!(!dedup.insert(1001, 1, "Autechre"));
+        assert!(!dedup.insert((1001, 1, "Autechre".to_string())));
         // Same release+track, different artist
-        assert!(dedup.insert(1001, 1, "Boards of Canada"));
+        assert!(dedup.insert((1001, 1, "Boards of Canada".to_string())));
     }
 
     #[test]
     fn test_dedup_label() {
         let mut dedup = LabelDedup::new();
-        assert!(dedup.insert(1001, "Warp"));
-        assert!(dedup.insert(1001, "4AD"));
+        assert!(dedup.insert((1001, "Warp".to_string())));
+        assert!(dedup.insert((1001, "4AD".to_string())));
         // Duplicate
-        assert!(!dedup.insert(1001, "Warp"));
+        assert!(!dedup.insert((1001, "Warp".to_string())));
         // Same label, different release
-        assert!(dedup.insert(1002, "Warp"));
+        assert!(dedup.insert((1002, "Warp".to_string())));
     }
 
     // -- PgOutput integration tests (require TEST_DATABASE_URL) --

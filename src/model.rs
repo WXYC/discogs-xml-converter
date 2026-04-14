@@ -90,6 +90,15 @@ pub struct ReleaseImage {
     pub uri: String,
 }
 
+impl wxyc_etl::pg::ImageRef for ReleaseImage {
+    fn image_type(&self) -> &str {
+        &self.image_type
+    }
+    fn uri(&self) -> &str {
+        &self.uri
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ReleaseCompany {
     pub company_id: u64,
