@@ -197,6 +197,11 @@ fn parse_release_body<R: BufRead>(
     let mut in_company = false;
     let mut current_company = ReleaseCompany::default();
 
+    // Videos parsing state
+    let mut in_videos = false;
+    let mut in_video = false;
+    let mut current_video = ReleaseVideo::default();
+
     buf.clear();
     loop {
         match reader.read_event_into(buf) {
@@ -301,6 +306,32 @@ fn parse_release_body<R: BufRead>(
                             current_company = ReleaseCompany::default();
                         }
                     }
+                    b"videos" => {
+                        in_videos = true;
+                    }
+                    b"video" => {
+                        if in_videos {
+                            in_video = true;
+                            current_video = ReleaseVideo::default();
+                            for attr in e.attributes() {
+                                let attr = attr?;
+                                match attr.key.as_ref() {
+                                    b"src" => {
+                                        current_video.src = attr.unescape_value()?.to_string()
+                                    }
+                                    b"duration" => {
+                                        let val = attr.unescape_value()?;
+                                        current_video.duration = val.parse().ok();
+                                    }
+                                    b"embed" => {
+                                        current_video.embed =
+                                            attr.unescape_value()?.as_ref() != "false";
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -355,6 +386,26 @@ fn parse_release_body<R: BufRead>(
                         }
                         release.images.push(image);
                     }
+                    b"video" => {
+                        if in_videos {
+                            let mut video = ReleaseVideo::default();
+                            for attr in e.attributes() {
+                                let attr = attr?;
+                                match attr.key.as_ref() {
+                                    b"src" => video.src = attr.unescape_value()?.to_string(),
+                                    b"duration" => {
+                                        let val = attr.unescape_value()?;
+                                        video.duration = val.parse().ok();
+                                    }
+                                    b"embed" => {
+                                        video.embed = attr.unescape_value()?.as_ref() != "false";
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            release.videos.push(video);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -408,9 +459,12 @@ fn parse_release_body<R: BufRead>(
                         in_tracklist = false;
                     }
                     // Text content elements — <title> is disambiguated by
-                    // in_track rather than path tracking (see comment above).
+                    // state flags rather than path tracking (see comment above).
+                    // Priority: video > track > release (most specific first).
                     b"title" => {
-                        if in_track {
+                        if in_video {
+                            current_video.title = current_text.clone();
+                        } else if in_track {
                             current_track.title = current_text.clone();
                         } else if !in_tracklist {
                             // At release level: set release title. The
@@ -489,6 +543,16 @@ fn parse_release_body<R: BufRead>(
                     }
                     b"companies" => {
                         in_companies = false;
+                    }
+                    b"videos" => {
+                        in_videos = false;
+                    }
+                    b"video" => {
+                        if in_videos {
+                            release.videos.push(current_video.clone());
+                            current_video = ReleaseVideo::default();
+                            in_video = false;
+                        }
                     }
                     b"anv" => {
                         if in_artists || in_extraartists {
@@ -817,5 +881,109 @@ mod tests {
 
         assert_eq!(count, 3);
         assert_eq!(releases.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_videos_from_single_release() {
+        let path = fixture_path("single_release.xml");
+        let mut releases = Vec::new();
+        parse_releases(&path, None, 100_000, |r| releases.push(r)).unwrap();
+
+        let r = &releases[0];
+        assert_eq!(r.videos.len(), 2);
+
+        assert_eq!(
+            r.videos[0].src,
+            "https://www.youtube.com/watch?v=afMHNll9EVM"
+        );
+        assert_eq!(r.videos[0].title, "Radiohead - Paranoid Android");
+        assert_eq!(r.videos[0].duration, Some(325));
+        assert_eq!(r.videos[0].embed, true);
+
+        assert_eq!(
+            r.videos[1].src,
+            "https://www.youtube.com/watch?v=XExCZfMCXdo"
+        );
+        assert_eq!(r.videos[1].title, "Radiohead - Airbag");
+        assert_eq!(r.videos[1].duration, Some(175));
+        assert_eq!(r.videos[1].embed, true);
+    }
+
+    #[test]
+    fn test_parse_video_self_closing() {
+        let path = fixture_path("multi_release.xml");
+        let mut releases = Vec::new();
+        parse_releases(&path, None, 100_000, |r| releases.push(r)).unwrap();
+
+        // Release 2001 has a self-closing <video> element with embed="false"
+        let r2001 = releases.iter().find(|r| r.id == 2001).unwrap();
+        assert_eq!(r2001.videos.len(), 1);
+        assert_eq!(
+            r2001.videos[0].src,
+            "https://www.youtube.com/watch?v=selfclose1"
+        );
+        assert_eq!(r2001.videos[0].duration, Some(209));
+        assert_eq!(r2001.videos[0].embed, false);
+        assert_eq!(r2001.videos[0].title, "");
+    }
+
+    #[test]
+    fn test_video_title_does_not_clobber_release_title() {
+        let xml = br#"<release id="55" status="Accepted">
+    <title>The Real Title</title>
+    <artists>
+      <artist><id>1</id><name>Test Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <videos>
+      <video src="https://www.youtube.com/watch?v=abc" duration="100" embed="true">
+        <title>Video Title Should Not Clobber</title>
+        <description></description>
+      </video>
+    </videos>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.title, "The Real Title");
+        assert_eq!(release.videos.len(), 1);
+        assert_eq!(release.videos[0].title, "Video Title Should Not Clobber");
+    }
+
+    #[test]
+    fn test_parse_video_from_bytes() {
+        let xml = br#"<release id="77" status="Accepted">
+    <title>Some Album</title>
+    <artists>
+      <artist><id>3</id><name>Some Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <videos>
+      <video src="https://www.youtube.com/watch?v=zzz" duration="200" embed="true">
+        <title>Some Video</title>
+        <description>desc</description>
+      </video>
+      <video src="https://www.youtube.com/watch?v=yyy" embed="false" />
+    </videos>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.videos.len(), 2);
+        assert_eq!(release.videos[0].src, "https://www.youtube.com/watch?v=zzz");
+        assert_eq!(release.videos[0].duration, Some(200));
+        assert_eq!(release.videos[0].embed, true);
+        assert_eq!(release.videos[0].title, "Some Video");
+        // Second video has no duration attribute
+        assert_eq!(release.videos[1].src, "https://www.youtube.com/watch?v=yyy");
+        assert_eq!(release.videos[1].duration, None);
+        assert_eq!(release.videos[1].embed, false);
+    }
+
+    #[test]
+    fn test_releases_without_videos_have_empty_vec() {
+        let path = fixture_path("multi_release.xml");
+        let mut releases = Vec::new();
+        parse_releases(&path, None, 100_000, |r| releases.push(r)).unwrap();
+
+        // Release 1002 has no <videos> section
+        let r1002 = releases.iter().find(|r| r.id == 1002).unwrap();
+        assert_eq!(r1002.videos.len(), 0);
     }
 }

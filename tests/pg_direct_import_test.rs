@@ -57,10 +57,7 @@ impl Drop for TempDb {
                 ),
                 &[],
             );
-            let _ = client.execute(
-                &format!("DROP DATABASE IF EXISTS {}", self.db_name),
-                &[],
-            );
+            let _ = client.execute(&format!("DROP DATABASE IF EXISTS {}", self.db_name), &[]);
         }
     }
 }
@@ -267,10 +264,7 @@ fn test_pg_output_artwork_urls() {
 
     // Release 1001 has a primary image
     let row = client
-        .query_one(
-            "SELECT artwork_url FROM release WHERE id = 1001",
-            &[],
-        )
+        .query_one("SELECT artwork_url FROM release WHERE id = 1001", &[])
         .unwrap();
     let url: Option<&str> = row.get(0);
     assert!(
@@ -284,10 +278,7 @@ fn test_pg_output_artwork_urls() {
 
     // Release 3001 has a primary image
     let row = client
-        .query_one(
-            "SELECT artwork_url FROM release WHERE id = 3001",
-            &[],
-        )
+        .query_one("SELECT artwork_url FROM release WHERE id = 3001", &[])
         .unwrap();
     let url: Option<&str> = row.get(0);
     assert!(
@@ -297,10 +288,7 @@ fn test_pg_output_artwork_urls() {
 
     // Release 2001 has only a secondary image; PgOutput should still pick it
     let row = client
-        .query_one(
-            "SELECT artwork_url FROM release WHERE id = 2001",
-            &[],
-        )
+        .query_one("SELECT artwork_url FROM release WHERE id = 2001", &[])
         .unwrap();
     let url: Option<&str> = row.get(0);
     assert!(
@@ -310,10 +298,7 @@ fn test_pg_output_artwork_urls() {
 
     // Release 1002 has no images
     let row = client
-        .query_one(
-            "SELECT artwork_url FROM release WHERE id = 1002",
-            &[],
-        )
+        .query_one("SELECT artwork_url FROM release WHERE id = 1002", &[])
         .unwrap();
     let url: Option<&str> = row.get(0);
     assert!(
@@ -349,10 +334,7 @@ fn test_pg_output_cache_metadata() {
 
     // Source should be 'bulk_import'
     let row = client
-        .query_one(
-            "SELECT DISTINCT source FROM cache_metadata",
-            &[],
-        )
+        .query_one("SELECT DISTINCT source FROM cache_metadata", &[])
         .unwrap();
     let source: &str = row.get(0);
     assert_eq!(source, "bulk_import");
@@ -447,10 +429,7 @@ fn test_pg_output_specific_release_data() {
 
     // Release 4001: Amnesiac (no master_id)
     let row = client
-        .query_one(
-            "SELECT master_id FROM release WHERE id = 4001",
-            &[],
-        )
+        .query_one("SELECT master_id FROM release WHERE id = 4001", &[])
         .unwrap();
     assert_eq!(
         row.get::<_, Option<i32>>(0),
@@ -474,10 +453,7 @@ fn test_pg_output_specific_release_data() {
 
     // Release 5002: empty released date -> NULL year
     let row = client
-        .query_one(
-            "SELECT release_year FROM release WHERE id = 5002",
-            &[],
-        )
+        .query_one("SELECT release_year FROM release WHERE id = 5002", &[])
         .unwrap();
     assert_eq!(
         row.get::<_, Option<i16>>(0),
@@ -567,8 +543,7 @@ fn test_pg_output_with_library_filter() {
     // Parse with library_artists filter
     let xml_path = fixture_path("releases_fixture.xml");
     let filter_path = fixture_path("library_artists.txt");
-    let filter =
-        discogs_xml_converter::filter::ArtistFilter::from_file(&filter_path).unwrap();
+    let filter = discogs_xml_converter::filter::ArtistFilter::from_file(&filter_path).unwrap();
 
     let mut pg_output = PgOutput::new(&temp_db.url, 100_000).unwrap();
 
@@ -623,9 +598,5 @@ fn test_pg_output_with_library_filter() {
             &[],
         )
         .unwrap();
-    assert_eq!(
-        rows.len(),
-        1,
-        "Radiohead should appear in filtered import"
-    );
+    assert_eq!(rows.len(), 1, "Radiohead should appear in filtered import");
 }
