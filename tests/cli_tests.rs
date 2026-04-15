@@ -103,8 +103,7 @@ fn test_release_with_many_artists_no_oom() {
     assert_eq!(count, 1, "The many-artists release should be written");
 
     // Verify all 1200 artists are in release_artist.csv
-    let mut rdr =
-        csv::Reader::from_path(output_dir.path().join("release_artist.csv")).unwrap();
+    let mut rdr = csv::Reader::from_path(output_dir.path().join("release_artist.csv")).unwrap();
     let artist_count = rdr.records().count();
     assert_eq!(
         artist_count, 1200,

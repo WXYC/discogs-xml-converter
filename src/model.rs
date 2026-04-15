@@ -23,6 +23,7 @@ pub struct Release {
     pub genres: Vec<String>,
     pub styles: Vec<String>,
     pub companies: Vec<ReleaseCompany>,
+    pub videos: Vec<ReleaseVideo>,
 }
 
 impl Release {
@@ -105,4 +106,23 @@ pub struct ReleaseCompany {
     pub name: String,
     pub entity_type: u32,
     pub entity_type_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReleaseVideo {
+    pub src: String,
+    pub title: String,
+    pub duration: Option<u32>,
+    pub embed: bool,
+}
+
+impl Default for ReleaseVideo {
+    fn default() -> Self {
+        ReleaseVideo {
+            src: String::new(),
+            title: String::new(),
+            duration: None,
+            embed: true,
+        }
+    }
 }

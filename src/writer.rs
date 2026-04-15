@@ -1,6 +1,6 @@
 //! CSV output writer for Discogs release data.
 //!
-//! Writes 9 CSV files matching the contract expected by `discogs-cache/scripts/import_csv.py`:
+//! Writes 10 CSV files matching the contract expected by `discogs-cache/scripts/import_csv.py`:
 //! - release.csv
 //! - release_artist.csv
 //! - release_label.csv
@@ -10,6 +10,7 @@
 //! - release_genre.csv
 //! - release_style.csv
 //! - release_company.csv
+//! - release_video.csv
 
 use std::path::Path;
 
@@ -29,14 +30,15 @@ const RELEASE_IMAGE: usize = 5;
 const RELEASE_GENRE: usize = 6;
 const RELEASE_STYLE: usize = 7;
 const RELEASE_COMPANY: usize = 8;
+const RELEASE_VIDEO: usize = 9;
 
-/// Manages 9 CSV writers via `MultiCsvWriter`, one per output file.
+/// Manages 10 CSV writers via `MultiCsvWriter`, one per output file.
 pub struct CsvOutput {
     csv: MultiCsvWriter,
 }
 
 impl CsvOutput {
-    /// Create a new CsvOutput, writing headers to all 9 files.
+    /// Create a new CsvOutput, writing headers to all 10 files.
     pub fn new(output_dir: &Path) -> Result<Self> {
         let specs = [
             CsvFileSpec::new(
@@ -90,13 +92,24 @@ impl CsvOutput {
                     "entity_type_name",
                 ],
             ),
+            CsvFileSpec::new(
+                "release_video.csv",
+                &[
+                    "release_id",
+                    "sequence",
+                    "src",
+                    "title",
+                    "duration",
+                    "embed",
+                ],
+            ),
         ];
 
         let csv = MultiCsvWriter::new(output_dir, &specs)?;
         Ok(CsvOutput { csv })
     }
 
-    /// Write a release and all its child records to the 9 CSV files.
+    /// Write a release and all its child records to the 10 CSV files.
     pub fn write_release(&mut self, release: &Release) -> Result<()> {
         let mut ibuf = itoa::Buffer::new();
         let id_str = ibuf.format(release.id).to_string();
@@ -236,6 +249,28 @@ impl CsvOutput {
             ])?;
         }
 
+        // release_video.csv
+        for (idx, video) in release.videos.iter().enumerate() {
+            let mut b = itoa::Buffer::new();
+            let sequence = b.format(idx + 1).to_string();
+            let duration_str = video
+                .duration
+                .map(|d| {
+                    let mut b = itoa::Buffer::new();
+                    b.format(d).to_string()
+                })
+                .unwrap_or_default();
+            let embed_str = if video.embed { "true" } else { "false" };
+            self.csv.writer(RELEASE_VIDEO).write_record([
+                &id_str,
+                &sequence,
+                &video.src,
+                &video.title,
+                &duration_str,
+                embed_str,
+            ])?;
+        }
+
         Ok(())
     }
 
@@ -352,6 +387,7 @@ mod tests {
                 entity_type: 23,
                 entity_type_name: "Recorded At".to_string(),
             }],
+            videos: vec![],
         }
     }
 
@@ -593,6 +629,7 @@ mod tests {
             "release_genre.csv",
             "release_style.csv",
             "release_company.csv",
+            "release_video.csv",
         ] {
             let content1 = std::fs::read_to_string(dir1.path().join(filename)).unwrap();
             let content2 = std::fs::read_to_string(dir2.path().join(filename)).unwrap();
@@ -602,5 +639,100 @@ mod tests {
                 filename
             );
         }
+    }
+
+    #[test]
+    fn test_csv_video_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = CsvOutput::new(dir.path()).unwrap();
+        drop(output);
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_video.csv")).unwrap();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            headers,
+            vec![
+                "release_id",
+                "sequence",
+                "src",
+                "title",
+                "duration",
+                "embed"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_write_release_videos() {
+        use crate::model::ReleaseVideo;
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = CsvOutput::new(dir.path()).unwrap();
+
+        let release = Release {
+            id: 1001,
+            artists: vec![ReleaseArtist {
+                artist_id: 1,
+                name: "Radiohead".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            videos: vec![
+                ReleaseVideo {
+                    src: "https://www.youtube.com/watch?v=aaa".to_string(),
+                    title: "First Video".to_string(),
+                    duration: Some(325),
+                    embed: true,
+                },
+                ReleaseVideo {
+                    src: "https://www.youtube.com/watch?v=bbb".to_string(),
+                    title: "".to_string(),
+                    duration: None,
+                    embed: false,
+                },
+            ],
+            ..Default::default()
+        };
+
+        output.write_release(&release).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_video.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+
+        assert_eq!(records.len(), 2);
+
+        // First video
+        assert_eq!(&records[0][0], "1001"); // release_id
+        assert_eq!(&records[0][1], "1"); // sequence
+        assert_eq!(&records[0][2], "https://www.youtube.com/watch?v=aaa"); // src
+        assert_eq!(&records[0][3], "First Video"); // title
+        assert_eq!(&records[0][4], "325"); // duration
+        assert_eq!(&records[0][5], "true"); // embed
+
+        // Second video: no duration, embed=false
+        assert_eq!(&records[1][0], "1001");
+        assert_eq!(&records[1][1], "2");
+        assert_eq!(&records[1][2], "https://www.youtube.com/watch?v=bbb");
+        assert_eq!(&records[1][3], ""); // empty title
+        assert_eq!(&records[1][4], ""); // empty duration (None → empty)
+        assert_eq!(&records[1][5], "false");
+    }
+
+    #[test]
+    fn test_csv_headers_includes_release_video() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = CsvOutput::new(dir.path()).unwrap();
+        drop(output);
+
+        // release_video.csv must exist alongside the other files
+        assert!(
+            dir.path().join("release_video.csv").exists(),
+            "release_video.csv should be created"
+        );
     }
 }

@@ -81,6 +81,10 @@ impl PgOutput {
                     "release_company",
                     "COPY release_company (release_id, company_id, company_name, entity_type, entity_type_name) FROM STDIN",
                 ),
+                (
+                    "release_video",
+                    "COPY release_video (release_id, sequence, src, title, duration, embed) FROM STDIN",
+                ),
             ],
             batch_size,
         );
@@ -287,6 +291,34 @@ impl ReleaseOutput for PgOutput {
             write_copy_int(buf, company.entity_type);
             buf.push(b'\t');
             escape_copy_text_into(buf, &company.entity_type_name);
+            buf.push(b'\n');
+        }
+
+        // release_video rows
+        for (idx, video) in release.videos.iter().enumerate() {
+            if video.src.is_empty() {
+                continue;
+            }
+            let seq = (idx + 1) as u32;
+            let buf = self.copier.buffer("release_video");
+            write_copy_int(buf, release.id);
+            buf.push(b'\t');
+            write_copy_int(buf, seq);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &video.src);
+            buf.push(b'\t');
+            if video.title.is_empty() {
+                buf.extend_from_slice(b"\\N");
+            } else {
+                escape_copy_text_into(buf, &video.title);
+            }
+            buf.push(b'\t');
+            match video.duration {
+                Some(d) => write_copy_int(buf, d),
+                None => buf.extend_from_slice(b"\\N"),
+            }
+            buf.push(b'\t');
+            buf.extend_from_slice(if video.embed { b"true" } else { b"false" });
             buf.push(b'\n');
         }
 
@@ -709,6 +741,7 @@ mod tests {
                  DROP TABLE IF EXISTS release_genre CASCADE;
                  DROP TABLE IF EXISTS release_style CASCADE;
                  DROP TABLE IF EXISTS release_company CASCADE;
+                 DROP TABLE IF EXISTS release_video CASCADE;
                  DROP TABLE IF EXISTS release CASCADE;",
             )
             .unwrap();
@@ -761,6 +794,14 @@ mod tests {
                     company_name text NOT NULL,
                     entity_type integer,
                     entity_type_name text NOT NULL
+                );
+                CREATE TABLE release_video (
+                    release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                    sequence integer NOT NULL,
+                    src text NOT NULL,
+                    title text,
+                    duration integer,
+                    embed boolean DEFAULT true
                 );
                 CREATE TABLE cache_metadata (
                     release_id integer PRIMARY KEY REFERENCES release(id) ON DELETE CASCADE,
@@ -829,6 +870,7 @@ mod tests {
                 entity_type: 23,
                 entity_type_name: "Recorded At".to_string(),
             }],
+            videos: vec![],
         }
     }
 

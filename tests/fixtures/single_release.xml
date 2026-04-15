@@ -77,5 +77,15 @@
         <entity_type_name>Mixed At</entity_type_name>
       </company>
     </companies>
+    <videos>
+      <video src="https://www.youtube.com/watch?v=afMHNll9EVM" duration="325" embed="true">
+        <title>Radiohead - Paranoid Android</title>
+        <description>https://www.discogs.com/Radiohead-OK-Computer/release/1001</description>
+      </video>
+      <video src="https://www.youtube.com/watch?v=XExCZfMCXdo" duration="175" embed="true">
+        <title>Radiohead - Airbag</title>
+        <description></description>
+      </video>
+    </videos>
   </release>
 </releases>

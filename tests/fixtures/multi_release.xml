@@ -154,7 +154,7 @@
     </tracklist>
   </release>
 
-  <!-- Joy Division release -->
+  <!-- Joy Division release (self-closing video element) -->
   <release id="2001" status="Accepted">
     <title>Unknown Pleasures</title>
     <country>UK</country>
@@ -183,6 +183,9 @@
         <duration>3:29</duration>
       </track>
     </tracklist>
+    <videos>
+      <video src="https://www.youtube.com/watch?v=selfclose1" duration="209" embed="false" />
+    </videos>
   </release>
 
   <!-- Release with NO artists (should be skipped) -->
