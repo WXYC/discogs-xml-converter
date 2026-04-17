@@ -59,7 +59,7 @@ impl PgOutput {
                 ),
                 (
                     "release_label",
-                    "COPY release_label (release_id, label_name) FROM STDIN",
+                    "COPY release_label (release_id, label_name, catno) FROM STDIN",
                 ),
                 (
                     "release_track",
@@ -174,7 +174,7 @@ impl ReleaseOutput for PgOutput {
             buf.extend_from_slice(b"\t1\n");
         }
 
-        // release_label rows (release_id, label_name only -- catno is not in the DB)
+        // release_label rows (release_id, label_name, catno)
         for label in &release.labels {
             if label.name.is_empty() {
                 continue;
@@ -189,6 +189,8 @@ impl ReleaseOutput for PgOutput {
             write_copy_int(buf, release.id);
             buf.push(b'\t');
             escape_copy_text_into(buf, &label.name);
+            buf.push(b'\t');
+            escape_copy_text_into(buf, &label.catno);
             buf.push(b'\n');
         }
 
@@ -730,7 +732,8 @@ mod tests {
                 );
                 CREATE TABLE release_label (
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
-                    label_name text NOT NULL
+                    label_name text NOT NULL,
+                    catno text
                 );
                 CREATE TABLE release_track (
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
@@ -870,12 +873,16 @@ mod tests {
         assert_eq!(rows[0].get::<_, &str>(2), "Autechre");
         assert_eq!(rows[0].get::<_, Option<i32>>(3), Some(0));
 
-        // Verify release_label
+        // Verify release_label (includes catno)
         let rows = client
-            .query("SELECT release_id, label_name FROM release_label", &[])
+            .query(
+                "SELECT release_id, label_name, catno FROM release_label",
+                &[],
+            )
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].get::<_, &str>(1), "Warp");
+        assert_eq!(rows[0].get::<_, Option<&str>>(2), Some("WARPCD77"));
 
         // Verify release_track
         let rows = client
