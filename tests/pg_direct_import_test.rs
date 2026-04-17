@@ -107,7 +107,8 @@ fn set_up_schema(client: &mut postgres::Client) {
              );
              CREATE TABLE release_label (
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
-                 label_name text NOT NULL
+                 label_name text NOT NULL,
+                 catno text
              );
              CREATE TABLE release_track (
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
