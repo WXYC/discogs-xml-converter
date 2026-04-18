@@ -12,6 +12,8 @@ use discogs_xml_converter::artist_writer::ArtistCsvOutput;
 use discogs_xml_converter::filter::ArtistFilter;
 use discogs_xml_converter::label_parser::parse_labels;
 use discogs_xml_converter::label_writer::LabelCsvOutput;
+use discogs_xml_converter::master_parser::parse_masters;
+use discogs_xml_converter::master_writer::MasterCsvOutput;
 use discogs_xml_converter::output::ReleaseOutput;
 use discogs_xml_converter::parser::parse_release_from_bytes;
 use discogs_xml_converter::pg_output::PgOutput;
@@ -109,6 +111,7 @@ fn find_root_element<R: std::io::BufRead>(mut reader: quick_xml::Reader<R>) -> R
 struct XmlFiles {
     artists: Option<PathBuf>,
     labels: Option<PathBuf>,
+    masters: Option<PathBuf>,
     releases: Option<PathBuf>,
 }
 
@@ -116,6 +119,7 @@ fn scan_directory(dir: &PathBuf) -> Result<XmlFiles> {
     let mut files = XmlFiles {
         artists: None,
         labels: None,
+        masters: None,
         releases: None,
     };
 
@@ -139,6 +143,10 @@ fn scan_directory(dir: &PathBuf) -> Result<XmlFiles> {
             "labels" => {
                 info!("Found labels XML: {}", path.display());
                 files.labels = Some(path);
+            }
+            "masters" => {
+                info!("Found masters XML: {}", path.display());
+                files.masters = Some(path);
             }
             "releases" => {
                 info!("Found releases XML: {}", path.display());
@@ -183,6 +191,17 @@ fn process_labels(path: &Path, output_dir: &Path) -> Result<()> {
         "Wrote {} labels ({} with parent relationships) to CSV",
         count, hierarchy_count
     );
+    Ok(())
+}
+
+fn process_masters(path: &Path, output_dir: &Path) -> Result<()> {
+    info!("Processing masters XML: {}", path.display());
+    let mut writer = MasterCsvOutput::new(output_dir)?;
+    let count = parse_masters(path, |master| {
+        writer.write_master(&master).unwrap();
+    })?;
+    writer.flush()?;
+    info!("Wrote {} masters to CSV", count);
     Ok(())
 }
 
@@ -569,6 +588,11 @@ fn main() -> Result<()> {
             (None, None) => {}
         }
 
+        // Process masters (independent of artists/labels/releases)
+        if let Some(masters_path) = &xml_files.masters {
+            process_masters(masters_path, &cli.output_dir)?;
+        }
+
         // Load artist filter with optional alias enhancement
         let filter = match &cli.library_artists {
             Some(path) => {
@@ -606,7 +630,24 @@ fn main() -> Result<()> {
 
         drop(filter);
     } else {
-        // Single file mode: process as releases XML (backward compatible)
+        // Single file mode: detect XML type, dispatch accordingly
+        let xml_type = detect_xml_type(&cli.input)?;
+        match xml_type.as_str() {
+            "masters" => {
+                process_masters(&cli.input, &cli.output_dir)?;
+                return Ok(());
+            }
+            "artists" => {
+                process_artists(&cli.input, &cli.output_dir)?;
+                return Ok(());
+            }
+            "labels" => {
+                process_labels(&cli.input, &cli.output_dir)?;
+                return Ok(());
+            }
+            _ => {} // Default: treat as releases (backward compatible)
+        }
+
         let filter = match &cli.library_artists {
             Some(path) => {
                 let f = ArtistFilter::from_file(path)?;

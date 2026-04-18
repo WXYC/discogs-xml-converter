@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<masters>
+  <master id="100">
+    <main_release>1001</main_release>
+    <artists>
+      <artist>
+        <id>3000</id>
+        <name>Stereolab</name>
+      </artist>
+    </artists>
+    <genres><genre>Electronic</genre><genre>Rock</genre></genres>
+    <styles><style>Post-Rock</style></styles>
+    <year>1998</year>
+    <title>Aluminum Tunes</title>
+    <data_quality>Correct</data_quality>
+  </master>
+  <master id="200">
+    <main_release>2001</main_release>
+    <artists>
+      <artist>
+        <id>4000</id>
+        <name>Cat Power</name>
+      </artist>
+    </artists>
+    <genres><genre>Rock</genre></genres>
+    <styles><style>Indie Rock</style></styles>
+    <year>1998</year>
+    <title>Moon Pix</title>
+    <data_quality>Correct</data_quality>
+  </master>
+  <master id="300">
+    <main_release>3001</main_release>
+    <artists>
+      <artist>
+        <id>5000</id>
+        <name>Duke Ellington</name>
+      </artist>
+      <artist>
+        <id>5001</id>
+        <name>John Coltrane</name>
+      </artist>
+    </artists>
+    <genres><genre>Jazz</genre></genres>
+    <styles><style>Cool Jazz</style></styles>
+    <year>1963</year>
+    <title>Duke Ellington &amp; John Coltrane</title>
+    <data_quality>Correct</data_quality>
+  </master>
+  <master id="400">
+    <main_release>4001</main_release>
+    <artists>
+      <artist>
+        <id>6000</id>
+        <name>Jessica Pratt</name>
+      </artist>
+    </artists>
+    <year>2015</year>
+    <title>On Your Own Love Again</title>
+    <data_quality>Correct</data_quality>
+  </master>
+  <master id="500">
+    <artists>
+      <artist>
+        <id>7000</id>
+        <name>Sessa</name>
+      </artist>
+    </artists>
+    <title>Pequena Vertigem de Amor</title>
+    <data_quality>Correct</data_quality>
+  </master>
+</masters>
