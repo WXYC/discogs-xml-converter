@@ -1,6 +1,6 @@
 # discogs-xml-converter
 
-Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compatible with the [discogs-cache](https://github.com/WXYC/discogs-cache) ETL pipeline.
+Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compatible with the [discogs-etl](https://github.com/WXYC/discogs-etl) ETL pipeline.
 
 Replaces three Python scripts with a single binary:
 
@@ -70,7 +70,7 @@ Produces 6 CSV files:
 | `release_track_artist.csv` | release_id, track_sequence, artist_name |
 | `release_image.csv` | release_id, type, width, height, uri |
 
-These are consumed by `discogs-cache/scripts/import_csv.py` using `csv.DictReader`.
+These are consumed by `discogs-etl/scripts/import_csv.py` using `csv.DictReader`.
 
 ## Performance
 
@@ -105,7 +105,7 @@ cargo test
 
 All tests use hand-written XML fixtures; no external data dumps needed.
 
-## Integration with discogs-cache
+## Integration with discogs-etl
 
 ### Direct-to-PostgreSQL pipeline (recommended)
 

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compatible with the [discogs-cache](https://github.com/WXYC/discogs-cache) ETL pipeline. Replaces three Python scripts (`discogs-xml2db`, `fix_csv_newlines.py`, `filter_csv.py`) with a single binary.
+Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compatible with the [discogs-etl](https://github.com/WXYC/discogs-etl) ETL pipeline. Replaces three Python scripts (`discogs-xml2db`, `fix_csv_newlines.py`, `filter_csv.py`) with a single binary.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ The `ReleaseOutput` trait (`output.rs`) provides a common interface for writing 
 
 ### CSV Output Contract
 
-The 9 output CSV files must be compatible with `discogs-cache/scripts/import_csv.py`. Headers and column order are defined in `writer.rs`. Changes to the CSV schema require coordinating with discogs-cache.
+The 9 output CSV files must be compatible with `discogs-etl/scripts/import_csv.py`. Headers and column order are defined in `writer.rs`. Changes to the CSV schema require coordinating with discogs-etl.
 
 ## Development
 
