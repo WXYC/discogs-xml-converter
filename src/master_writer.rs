@@ -51,17 +51,10 @@ impl MasterCsvOutput {
             .main_release_id
             .map(|id| id.to_string())
             .unwrap_or_default();
-        let year = master
-            .year
-            .map(|y| y.to_string())
-            .unwrap_or_default();
+        let year = master.year.map(|y| y.to_string()).unwrap_or_default();
 
-        self.master.write_record([
-            &master.id.to_string(),
-            &master.title,
-            &main_release,
-            &year,
-        ])?;
+        self.master
+            .write_record([&master.id.to_string(), &master.title, &main_release, &year])?;
 
         let master_id_str = master.id.to_string();
         for artist in &master.artists {
@@ -95,11 +88,21 @@ mod tests {
         drop(output);
 
         let mut rdr = csv::Reader::from_path(dir.path().join("master.csv")).unwrap();
-        let headers: Vec<String> = rdr.headers().unwrap().iter().map(|s| s.to_string()).collect();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(headers, vec!["id", "title", "main_release_id", "year"]);
 
         let mut rdr = csv::Reader::from_path(dir.path().join("master_artist.csv")).unwrap();
-        let headers: Vec<String> = rdr.headers().unwrap().iter().map(|s| s.to_string()).collect();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(headers, vec!["master_id", "artist_id", "artist_name"]);
     }
 
@@ -141,8 +144,14 @@ mod tests {
             main_release_id: Some(3001),
             year: Some(1963),
             artists: vec![
-                MasterArtist { id: 5000, name: "Duke Ellington".to_string() },
-                MasterArtist { id: 5001, name: "John Coltrane".to_string() },
+                MasterArtist {
+                    id: 5000,
+                    name: "Duke Ellington".to_string(),
+                },
+                MasterArtist {
+                    id: 5001,
+                    name: "John Coltrane".to_string(),
+                },
             ],
         };
         output.write_master(&master).unwrap();
@@ -166,7 +175,10 @@ mod tests {
             title: "Pequena Vertigem de Amor".to_string(),
             main_release_id: None,
             year: None,
-            artists: vec![MasterArtist { id: 7000, name: "Sessa".to_string() }],
+            artists: vec![MasterArtist {
+                id: 7000,
+                name: "Sessa".to_string(),
+            }],
         };
         output.write_master(&master).unwrap();
         output.flush().unwrap();

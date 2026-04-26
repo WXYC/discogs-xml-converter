@@ -2,22 +2,22 @@
 <releases>
   <!-- Release with all fields -->
   <release id="1002" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>US</country>
-    <released>1997-07-01</released>
+    <released>2001-05-01</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Capitol Records" catno="C1-55229" />
+      <label name="Warp Records" catno="WARPLP128" />
     </labels>
     <formats>
       <format name="Vinyl" qty="1" text="" />
@@ -25,29 +25,29 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
     </tracklist>
   </release>
 
   <!-- Release with no master_id -->
   <release id="4001" status="Accepted">
-    <title>Amnesiac</title>
+    <title>Tri Repetae</title>
     <country>UK</country>
-    <released>2001-06-05</released>
+    <released>1995-11-13</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Parlophone" catno="7243 5 32764 2 8" />
+      <label name="Warp Records" catno="WARPCD38" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -55,8 +55,8 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Packt Like Sardines in a Crushd Tin Box</title>
-        <duration>4:00</duration>
+        <title>Dael</title>
+        <duration>7:05</duration>
       </track>
     </tracklist>
   </release>
@@ -92,9 +92,9 @@
     </tracklist>
   </release>
 
-  <!-- Release with unicode artist (Björk) -->
+  <!-- Release with unicode artist (Nilüfer Yanya) -->
   <release id="6001" status="Accepted">
-    <title>Homogenic</title>
+    <title>PAINLESS</title>
     <country>UK</country>
     <released>Unknown</released>
     <notes></notes>
@@ -103,13 +103,13 @@
     <artists>
       <artist>
         <id>5</id>
-        <name>Björk</name>
+        <name>Nilüfer Yanya</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="One Little Indian" catno="TPLP 71 CD" />
+      <label name="ATO Records" catno="ATO0570" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -117,30 +117,30 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Hunter</title>
-        <duration>4:15</duration>
+        <title>the dealer</title>
+        <duration>3:26</duration>
       </track>
     </tracklist>
   </release>
 
-  <!-- Release with XML entity in artist name (Simon &amp; Garfunkel) -->
+  <!-- Release with XML entity in artist name (Duke Ellington &amp; John Coltrane) -->
   <release id="9002" status="Accepted">
-    <title>Bridge Over Troubled Water</title>
+    <title>Duke Ellington &amp; John Coltrane</title>
     <country>US</country>
-    <released>1970</released>
+    <released>1963</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>1400</master_id>
     <artists>
       <artist>
         <id>9</id>
-        <name>Simon &amp; Garfunkel</name>
+        <name>Duke Ellington &amp; John Coltrane</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Columbia" catno="KCS 9914" />
+      <label name="Impulse Records" catno="A-30" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -148,30 +148,30 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Bridge Over Troubled Water</title>
-        <duration>4:52</duration>
+        <title>In A Sentimental Mood</title>
+        <duration>4:17</duration>
       </track>
     </tracklist>
   </release>
 
-  <!-- Joy Division release (self-closing video element) -->
+  <!-- Father John Misty release (self-closing video element) -->
   <release id="2001" status="Accepted">
-    <title>Unknown Pleasures</title>
+    <title>I Love You Honeybear</title>
     <country>UK</country>
-    <released>1979-06-15</released>
+    <released>2015-02-09</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>600</master_id>
     <artists>
       <artist>
         <id>2</id>
-        <name>Joy Division</name>
+        <name>Father John Misty</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Factory Records" catno="FACT 10" />
+      <label name="Bella Union" catno="BELLA483V" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -179,8 +179,8 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Disorder</title>
-        <duration>3:29</duration>
+        <title>I Love You, Honeybear</title>
+        <duration>4:39</duration>
       </track>
     </tracklist>
     <videos>

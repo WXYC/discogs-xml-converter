@@ -188,9 +188,10 @@ fn test_with_library_artists_filter() {
         .assert()
         .success();
 
-    // Matching releases: 1001-1003, 3001, 4001 (Radiohead=5),
-    //   2001, 2002 (Joy Division=2), 6001 (Bjork=1), 9002 (Simon & Garfunkel=1)
-    // Non-matching: "The Beatles" != "Beatles, The" (different normalized forms),
+    // Matching releases: 1001-1003, 3001, 4001 (Autechre=5),
+    //   2001, 2002 (Father John Misty=2), 6001 (Nilüfer Yanya=1),
+    //   9002 (Duke Ellington & John Coltrane=1)
+    // Non-matching: "The Field" != "Field, The" (different normalized forms),
     //   "Various Artists" != "Various", 5001, 5002, 7001, 10001, 10002
     let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
@@ -298,10 +299,10 @@ fn test_directory_input() {
 #[test]
 fn test_directory_input_with_alias_filtering() {
     // Test that alias-enhanced filtering works end-to-end.
-    // The releases_fixture.xml has a release credited to "Beatles, The" (id 8).
-    // The library_artists.txt has "The Beatles".
-    // Without aliases, "Beatles, The" != "The Beatles" (no match).
-    // We'll create an artists.xml that maps artist_id 8 to alias "The Beatles".
+    // The releases_fixture.xml has a release credited to "Field, The" (id 8).
+    // The library_artists.txt has "The Field".
+    // Without aliases, "Field, The" != "The Field" (no match).
+    // We'll create an artists.xml that maps artist_id 8 to alias "The Field".
     let input_dir = tempfile::tempdir().unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
@@ -312,14 +313,14 @@ fn test_directory_input_with_alias_filtering() {
     )
     .unwrap();
 
-    // Create a custom artists.xml that maps artist_id 8 to alias "The Beatles"
+    // Create a custom artists.xml that maps artist_id 8 to alias "The Field"
     let artists_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <artists>
   <artist>
     <id>8</id>
-    <name>Beatles, The</name>
+    <name>Field, The</name>
     <namevariations>
-      <name>The Beatles</name>
+      <name>The Field</name>
     </namevariations>
   </artist>
 </artists>
@@ -336,8 +337,8 @@ fn test_directory_input_with_alias_filtering() {
         .assert()
         .success();
 
-    // Without alias: 9 matches. With alias: "Beatles, The" now matches via
-    // alias "The Beatles" -> should be 10.
+    // Without alias: 9 matches. With alias: "Field, The" now matches via
+    // alias "The Field" -> should be 10.
     let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
     assert_eq!(

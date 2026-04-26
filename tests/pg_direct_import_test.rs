@@ -365,7 +365,7 @@ fn test_pg_output_release_track_count() {
         "release_track_count should be populated after finish()"
     );
 
-    // Release 1001 (OK Computer UK CD) has 3 tracks
+    // Release 1001 (Confield UK CD) has 3 tracks
     let row = client
         .query_one(
             "SELECT track_count FROM release_track_count WHERE release_id = 1001",
@@ -375,7 +375,7 @@ fn test_pg_output_release_track_count() {
     let track_count: i32 = row.get(0);
     assert_eq!(track_count, 3, "Release 1001 should have 3 tracks");
 
-    // Release 1002 (OK Computer US Vinyl) has 5 tracks
+    // Release 1002 (Confield US Vinyl) has 5 tracks
     let row = client
         .query_one(
             "SELECT track_count FROM release_track_count WHERE release_id = 1002",
@@ -401,43 +401,43 @@ fn test_pg_output_specific_release_data() {
 
     let mut client = postgres::Client::connect(&temp_db.url, postgres::NoTls).unwrap();
 
-    // Release 1001: OK Computer UK
+    // Release 1001: Confield UK
     let row = client
         .query_one(
             "SELECT title, release_year, country, master_id FROM release WHERE id = 1001",
             &[],
         )
         .unwrap();
-    assert_eq!(row.get::<_, &str>(0), "OK Computer");
-    assert_eq!(row.get::<_, Option<i16>>(1), Some(1997));
+    assert_eq!(row.get::<_, &str>(0), "Confield");
+    assert_eq!(row.get::<_, Option<i16>>(1), Some(2001));
     assert_eq!(row.get::<_, Option<&str>>(2), Some("UK"));
     assert_eq!(row.get::<_, Option<i32>>(3), Some(500));
 
-    // Release 6001: Homogenic (bad date "Unknown" -> NULL year)
+    // Release 6001: PAINLESS (bad date "Unknown" -> NULL year)
     let row = client
         .query_one(
             "SELECT title, release_year FROM release WHERE id = 6001",
             &[],
         )
         .unwrap();
-    assert_eq!(row.get::<_, &str>(0), "Homogenic");
+    assert_eq!(row.get::<_, &str>(0), "PAINLESS");
     assert_eq!(
         row.get::<_, Option<i16>>(1),
         None,
         "Bad date 'Unknown' should produce NULL year"
     );
 
-    // Release 4001: Amnesiac (no master_id)
+    // Release 4001: Tri Repetae (no master_id)
     let row = client
         .query_one("SELECT master_id FROM release WHERE id = 4001", &[])
         .unwrap();
     assert_eq!(
         row.get::<_, Option<i32>>(0),
         None,
-        "Amnesiac should have no master_id"
+        "Tri Repetae should have no master_id"
     );
 
-    // Release 9002: Simon & Garfunkel (ampersand in name)
+    // Release 9002: Duke Ellington & John Coltrane (ampersand in name)
     let rows = client
         .query(
             "SELECT artist_name FROM release_artist WHERE release_id = 9002",
@@ -447,7 +447,7 @@ fn test_pg_output_specific_release_data() {
     assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].get::<_, &str>(0),
-        "Simon & Garfunkel",
+        "Duke Ellington & John Coltrane",
         "Ampersand should be preserved in artist name"
     );
 
@@ -561,8 +561,10 @@ fn test_pg_output_with_library_filter() {
     let mut client = postgres::Client::connect(&temp_db.url, postgres::NoTls).unwrap();
 
     // With the library_artists.txt filter, only these artists should match:
-    // Radiohead (1001, 1002, 1003, 3001, 4001), Joy Division (2001, 2002),
-    // The Beatles (9001), Simon & Garfunkel (9002), Bjork (6001), Various (8001)
+    // Autechre (1001, 1002, 1003, 3001, 4001), Father John Misty (2001, 2002),
+    // Nilüfer Yanya (6001), Duke Ellington & John Coltrane (9002).
+    // "Field, The" (9001) does NOT match "The Field" without alias enrichment.
+    // V/A (8001) does NOT match -- "Various" is removed from library_artists.txt.
     let row = client
         .query_one("SELECT COUNT(*) FROM release", &[])
         .unwrap();
@@ -591,12 +593,12 @@ fn test_pg_output_with_library_filter() {
         "DJ Unknown should not appear in filtered import"
     );
 
-    // Verify Radiohead IS in the database
+    // Verify Autechre IS in the database
     let rows = client
         .query(
-            "SELECT DISTINCT artist_name FROM release_artist WHERE artist_name = 'Radiohead'",
+            "SELECT DISTINCT artist_name FROM release_artist WHERE artist_name = 'Autechre'",
             &[],
         )
         .unwrap();
-    assert_eq!(rows.len(), 1, "Radiohead should appear in filtered import");
+    assert_eq!(rows.len(), 1, "Autechre should appear in filtered import");
 }

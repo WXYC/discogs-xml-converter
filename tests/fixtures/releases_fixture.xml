@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <releases>
-  <!-- Release 1001: OK Computer UK CD (3 tracks, 2 labels, 2 images, 1 extra artist) -->
+  <!-- Release 1001: Confield UK CD (3 tracks, 2 labels, 2 images, 1 extra artist) -->
   <release id="1001" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>UK</country>
-    <released>1997-06-16</released>
+    <released>2001-04-09</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
@@ -26,8 +26,8 @@
       </artist>
     </extraartists>
     <labels>
-      <label name="Parlophone" catno="7243 8 55229 2 8" />
-      <label name="Capitol Records" catno="CDP 7243 8 55229 2 8" />
+      <label name="Warp Records" catno="WARPCD128" />
+      <label name="Warp Records" catno="WARP CD 128" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -35,18 +35,18 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Paranoid Android</title>
-        <duration>6:23</duration>
+        <title>Cfern</title>
+        <duration>7:54</duration>
       </track>
       <track>
         <position>3</position>
-        <title>Subterranean Homesick Alien</title>
-        <duration>4:27</duration>
+        <title>Pen Expers</title>
+        <duration>5:54</duration>
       </track>
     </tracklist>
     <images>
@@ -71,24 +71,24 @@
     </companies>
   </release>
 
-  <!-- Release 1002: OK Computer US Vinyl (5 tracks) -->
+  <!-- Release 1002: Confield US Vinyl (5 tracks) -->
   <release id="1002" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>US</country>
-    <released>1997-07-01</released>
+    <released>2001-05-01</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Capitol Records" catno="C1-55229" />
+      <label name="Warp Records" catno="WARPLP128" />
     </labels>
     <formats>
       <format name="Vinyl" qty="1" text="" />
@@ -96,50 +96,50 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
       <track>
         <position>A2</position>
-        <title>Paranoid Android</title>
-        <duration>6:23</duration>
+        <title>Cfern</title>
+        <duration>7:54</duration>
       </track>
       <track>
         <position>A3</position>
-        <title>Subterranean Homesick Alien</title>
-        <duration>4:27</duration>
+        <title>Pen Expers</title>
+        <duration>5:54</duration>
       </track>
       <track>
         <position>B1</position>
-        <title>Exit Music (For a Film)</title>
-        <duration>4:24</duration>
+        <title>Sim Gishel</title>
+        <duration>9:18</duration>
       </track>
       <track>
         <position>B2</position>
-        <title>Let Down</title>
-        <duration>4:59</duration>
+        <title>Parhelic Triangle</title>
+        <duration>5:51</duration>
       </track>
     </tracklist>
   </release>
 
-  <!-- Release 1003: OK Computer JP Cassette (1 track) -->
+  <!-- Release 1003: Confield JP Cassette (1 track) -->
   <release id="1003" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>JP</country>
-    <released>1997</released>
+    <released>2001</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="EMI" catno="TOCP-50201" />
+      <label name="Beat Records" catno="BRC-91" />
     </labels>
     <formats>
       <format name="Cassette" qty="1" text="" />
@@ -147,30 +147,30 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
     </tracklist>
   </release>
 
-  <!-- Release 2001: Unknown Pleasures UK LP (2 tracks) -->
+  <!-- Release 2001: I Love You Honeybear UK LP (2 tracks) -->
   <release id="2001" status="Accepted">
-    <title>Unknown Pleasures</title>
+    <title>I Love You Honeybear</title>
     <country>UK</country>
-    <released>1979-06-15</released>
+    <released>2015-02-09</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>600</master_id>
     <artists>
       <artist>
         <id>2</id>
-        <name>Joy Division</name>
+        <name>Father John Misty</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Factory Records" catno="FACT 10" />
+      <label name="Bella Union" catno="BELLA483V" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -178,13 +178,13 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Disorder</title>
-        <duration>3:29</duration>
+        <title>I Love You, Honeybear</title>
+        <duration>4:39</duration>
       </track>
       <track>
         <position>A2</position>
-        <title>Day of the Lords</title>
-        <duration>4:48</duration>
+        <title>Chateau Lobby #4 (In C For Two Virgins)</title>
+        <duration>3:00</duration>
       </track>
     </tracklist>
     <images>
@@ -192,24 +192,24 @@
     </images>
   </release>
 
-  <!-- Release 2002: Unknown Pleasures US CD (4 tracks) -->
+  <!-- Release 2002: I Love You Honeybear US CD (4 tracks) -->
   <release id="2002" status="Accepted">
-    <title>Unknown Pleasures</title>
+    <title>I Love You Honeybear</title>
     <country>US</country>
-    <released>1979</released>
+    <released>2015</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>600</master_id>
     <artists>
       <artist>
         <id>2</id>
-        <name>Joy Division</name>
+        <name>Father John Misty</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Qwest Records" catno="1-25840" />
+      <label name="Sub Pop" catno="SP 1097" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -217,45 +217,45 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Disorder</title>
-        <duration>3:29</duration>
+        <title>I Love You, Honeybear</title>
+        <duration>4:39</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Day of the Lords</title>
-        <duration>4:48</duration>
+        <title>Chateau Lobby #4 (In C For Two Virgins)</title>
+        <duration>3:00</duration>
       </track>
       <track>
         <position>3</position>
-        <title>Candidate</title>
-        <duration>3:05</duration>
+        <title>True Affection</title>
+        <duration>3:33</duration>
       </track>
       <track>
         <position>4</position>
-        <title>Insight</title>
-        <duration>4:03</duration>
+        <title>The Night Josh Tillman Came To Our Apt.</title>
+        <duration>3:30</duration>
       </track>
     </tracklist>
   </release>
 
-  <!-- Release 3001: Kid A (2 tracks) -->
+  <!-- Release 3001: Amber (2 tracks) -->
   <release id="3001" status="Accepted">
-    <title>Kid A</title>
+    <title>Amber</title>
     <country>UK</country>
-    <released>2000-10-02</released>
+    <released>1994-11-07</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>700</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Parlophone" catno="7243 5 27753 2 3" />
+      <label name="Warp Records" catno="WARPCD25" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -263,13 +263,13 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Everything In Its Right Place</title>
-        <duration>4:11</duration>
+        <title>Foil</title>
+        <duration>6:11</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Kid A</title>
-        <duration>4:44</duration>
+        <title>Montreal</title>
+        <duration>5:42</duration>
       </track>
     </tracklist>
     <images>
@@ -277,23 +277,23 @@
     </images>
   </release>
 
-  <!-- Release 4001: Amnesiac, no master_id (2 tracks) -->
+  <!-- Release 4001: Tri Repetae, no master_id (2 tracks) -->
   <release id="4001" status="Accepted">
-    <title>Amnesiac</title>
+    <title>Tri Repetae</title>
     <country>UK</country>
-    <released>2001-06-05</released>
+    <released>1995-11-13</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Parlophone" catno="7243 5 32764 2 8" />
+      <label name="Warp Records" catno="WARPCD38" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -301,13 +301,13 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Packt Like Sardines in a Crushd Tin Box</title>
-        <duration>4:00</duration>
+        <title>Dael</title>
+        <duration>7:05</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Pyramid Song</title>
-        <duration>4:49</duration>
+        <title>Clipper</title>
+        <duration>9:49</duration>
       </track>
     </tracklist>
   </release>
@@ -374,9 +374,9 @@
     </tracklist>
   </release>
 
-  <!-- Release 6001: Homogenic, Björk, bad date -->
+  <!-- Release 6001: PAINLESS, Nilüfer Yanya (diacritic), bad date -->
   <release id="6001" status="Accepted">
-    <title>Homogenic</title>
+    <title>PAINLESS</title>
     <country>UK</country>
     <released>Unknown</released>
     <notes></notes>
@@ -385,13 +385,13 @@
     <artists>
       <artist>
         <id>5</id>
-        <name>Björk</name>
+        <name>Nilüfer Yanya</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="One Little Indian" catno="TPLP 71 CD" />
+      <label name="ATO Records" catno="ATO0570" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -399,13 +399,13 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Hunter</title>
-        <duration>4:15</duration>
+        <title>the dealer</title>
+        <duration>3:26</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Joga</title>
-        <duration>5:05</duration>
+        <title>L/R</title>
+        <duration>3:31</duration>
       </track>
     </tracklist>
   </release>
@@ -434,9 +434,9 @@
 
   <!-- Release 8001: Compilation (Various, track artists) -->
   <release id="8001" status="Accepted">
-    <title>Sugar Hill</title>
+    <title>Nordic Roots</title>
     <country>US</country>
-    <released>1979</released>
+    <released>1998</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>1200</master_id>
@@ -449,7 +449,7 @@
       </artist>
     </artists>
     <labels>
-      <label name="Sugar Hill Records" catno="SH-542" />
+      <label name="NorthSide" catno="NSD6020" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -457,47 +457,47 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Rapper's Delight</title>
-        <duration>14:35</duration>
+        <title>Tuhkimo</title>
+        <duration>4:08</duration>
         <artists>
           <artist>
             <id>100</id>
-            <name>Sugarhill Gang</name>
+            <name>Hedningarna</name>
           </artist>
         </artists>
       </track>
       <track>
         <position>A2</position>
-        <title>Apache</title>
-        <duration>5:35</duration>
+        <title>Vedergällningen</title>
+        <duration>5:12</duration>
         <artists>
           <artist>
             <id>101</id>
-            <name>Incredible Bongo Band</name>
+            <name>Garmarna</name>
           </artist>
         </artists>
       </track>
     </tracklist>
   </release>
 
-  <!-- Release 9001: Abbey Road -->
+  <!-- Release 9001: From Here We Go Sublime (comma-suffix "Field, The" inversion test) -->
   <release id="9001" status="Accepted">
-    <title>Abbey Road</title>
+    <title>From Here We Go Sublime</title>
     <country>UK</country>
-    <released>1969-09-26</released>
+    <released>2007-03-26</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>1300</master_id>
     <artists>
       <artist>
         <id>8</id>
-        <name>Beatles, The</name>
+        <name>Field, The</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Apple Records" catno="PCS 7088" />
+      <label name="Kompakt" catno="KOMPAKT 154" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -505,13 +505,13 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Come Together</title>
-        <duration>4:20</duration>
+        <title>Over The Ice</title>
+        <duration>7:24</duration>
       </track>
       <track>
         <position>A2</position>
-        <title>Something</title>
-        <duration>3:03</duration>
+        <title>A Paw In My Face</title>
+        <duration>5:44</duration>
       </track>
     </tracklist>
     <images>
@@ -519,24 +519,24 @@
     </images>
   </release>
 
-  <!-- Release 9002: Bridge Over Troubled Water -->
+  <!-- Release 9002: Duke Ellington & John Coltrane (ampersand in artist name) -->
   <release id="9002" status="Accepted">
-    <title>Bridge Over Troubled Water</title>
+    <title>Duke Ellington &amp; John Coltrane</title>
     <country>US</country>
-    <released>1970</released>
+    <released>1963</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>1400</master_id>
     <artists>
       <artist>
         <id>9</id>
-        <name>Simon &amp; Garfunkel</name>
+        <name>Duke Ellington &amp; John Coltrane</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Columbia" catno="KCS 9914" />
+      <label name="Impulse Records" catno="A-30" />
     </labels>
     <formats>
       <format name="LP" qty="1" text="" />
@@ -544,8 +544,8 @@
     <tracklist>
       <track>
         <position>A1</position>
-        <title>Bridge Over Troubled Water</title>
-        <duration>4:52</duration>
+        <title>In A Sentimental Mood</title>
+        <duration>4:17</duration>
       </track>
     </tracklist>
   </release>

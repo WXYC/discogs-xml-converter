@@ -615,16 +615,16 @@ mod tests {
         let r = &releases[0];
         assert_eq!(r.id, 1001);
         assert_eq!(r.status, "Accepted");
-        assert_eq!(r.title, "OK Computer");
+        assert_eq!(r.title, "Confield");
         assert_eq!(r.country, "UK");
-        assert_eq!(r.released, "1997-06-16");
+        assert_eq!(r.released, "2001-04-09");
         assert_eq!(r.data_quality, "Correct");
         assert_eq!(r.master_id, Some(500));
         assert_eq!(r.format_string(), "CD");
 
         // Artists
         assert_eq!(r.artists.len(), 1);
-        assert_eq!(r.artists[0].name, "Radiohead");
+        assert_eq!(r.artists[0].name, "Autechre");
         assert_eq!(r.artists[0].artist_id, 1);
 
         // Extra artists
@@ -633,17 +633,17 @@ mod tests {
 
         // Labels
         assert_eq!(r.labels.len(), 2);
-        assert_eq!(r.labels[0].name, "Parlophone");
-        assert_eq!(r.labels[0].catno, "7243 8 55229 2 8");
-        assert_eq!(r.labels[1].name, "Capitol Records");
+        assert_eq!(r.labels[0].name, "Warp Records");
+        assert_eq!(r.labels[0].catno, "WARPCD128");
+        assert_eq!(r.labels[1].name, "Warp Records");
 
         // Tracks
         assert_eq!(r.tracks.len(), 3);
-        assert_eq!(r.tracks[0].title, "Airbag");
+        assert_eq!(r.tracks[0].title, "VI Scose Poise");
         assert_eq!(r.tracks[0].position, "1");
-        assert_eq!(r.tracks[0].duration, "4:44");
-        assert_eq!(r.tracks[1].title, "Paranoid Android");
-        assert_eq!(r.tracks[2].title, "Subterranean Homesick Alien");
+        assert_eq!(r.tracks[0].duration, "7:11");
+        assert_eq!(r.tracks[1].title, "Cfern");
+        assert_eq!(r.tracks[2].title, "Pen Expers");
 
         // Images
         assert_eq!(r.images.len(), 2);
@@ -715,7 +715,7 @@ mod tests {
         // Release 4001 has no master_id
         let r4001 = releases.iter().find(|r| r.id == 4001).unwrap();
         assert_eq!(r4001.master_id, None);
-        assert_eq!(r4001.released, "2001-06-05");
+        assert_eq!(r4001.released, "1995-11-13");
 
         // Release 5002 has no released date
         let r5002 = releases.iter().find(|r| r.id == 5002);
@@ -730,13 +730,13 @@ mod tests {
         let mut releases = Vec::new();
         parse_releases(&path, None, 100_000, |r| releases.push(r)).unwrap();
 
-        // Release 6001 has Björk (unicode)
+        // Release 6001 has Nilüfer Yanya (unicode)
         let r6001 = releases.iter().find(|r| r.id == 6001).unwrap();
-        assert_eq!(r6001.artists[0].name, "Björk");
+        assert_eq!(r6001.artists[0].name, "Nilüfer Yanya");
 
-        // Release 9002 has Simon & Garfunkel (entity)
+        // Release 9002 has Duke Ellington & John Coltrane (entity)
         let r9002 = releases.iter().find(|r| r.id == 9002).unwrap();
-        assert_eq!(r9002.artists[0].name, "Simon & Garfunkel");
+        assert_eq!(r9002.artists[0].name, "Duke Ellington & John Coltrane");
     }
 
     #[test]
@@ -759,22 +759,22 @@ mod tests {
     #[test]
     fn test_parse_release_from_bytes() {
         let xml = br#"<release id="1001" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>UK</country>
-    <released>1997-06-16</released>
+    <released>2001-04-09</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
     </artists>
     <labels>
-      <label name="Parlophone" catno="7243 8 55229 2 8" />
+      <label name="Warp Records" catno="WARPCD128" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="" />
@@ -797,8 +797,8 @@ mod tests {
     <tracklist>
       <track>
         <position>1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
     </tracklist>
   </release>"#;
@@ -806,17 +806,17 @@ mod tests {
         let release = parse_release_from_bytes(xml).unwrap();
         assert_eq!(release.id, 1001);
         assert_eq!(release.status, "Accepted");
-        assert_eq!(release.title, "OK Computer");
+        assert_eq!(release.title, "Confield");
         assert_eq!(release.country, "UK");
-        assert_eq!(release.released, "1997-06-16");
+        assert_eq!(release.released, "2001-04-09");
         assert_eq!(release.master_id, Some(500));
         assert_eq!(release.artists.len(), 1);
-        assert_eq!(release.artists[0].name, "Radiohead");
+        assert_eq!(release.artists[0].name, "Autechre");
         assert_eq!(release.artists[0].artist_id, 1);
         assert_eq!(release.labels.len(), 1);
-        assert_eq!(release.labels[0].name, "Parlophone");
+        assert_eq!(release.labels[0].name, "Warp Records");
         assert_eq!(release.tracks.len(), 1);
-        assert_eq!(release.tracks[0].title, "Airbag");
+        assert_eq!(release.tracks[0].title, "VI Scose Poise");
         assert_eq!(release.genres, vec!["Electronic", "Rock"]);
         assert_eq!(release.styles, vec!["Alternative Rock"]);
         assert_eq!(release.companies.len(), 1);
@@ -896,7 +896,7 @@ mod tests {
             r.videos[0].src,
             "https://www.youtube.com/watch?v=afMHNll9EVM"
         );
-        assert_eq!(r.videos[0].title, "Radiohead - Paranoid Android");
+        assert_eq!(r.videos[0].title, "Autechre - Cfern");
         assert_eq!(r.videos[0].duration, Some(325));
         assert_eq!(r.videos[0].embed, true);
 
@@ -904,7 +904,7 @@ mod tests {
             r.videos[1].src,
             "https://www.youtube.com/watch?v=XExCZfMCXdo"
         );
-        assert_eq!(r.videos[1].title, "Radiohead - Airbag");
+        assert_eq!(r.videos[1].title, "Autechre - VI Scose Poise");
         assert_eq!(r.videos[1].duration, Some(175));
         assert_eq!(r.videos[1].embed, true);
     }
