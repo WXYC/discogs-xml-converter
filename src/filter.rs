@@ -123,17 +123,17 @@ mod tests {
     /// Port of all 11 test cases from discogs-cache/tests/unit/test_filter_csv.py
     #[test]
     fn test_normalize_lowercase() {
-        assert_eq!(normalize_artist("Radiohead"), "radiohead");
+        assert_eq!(normalize_artist("Autechre"), "autechre");
     }
 
     #[test]
     fn test_normalize_strip_spaces() {
-        assert_eq!(normalize_artist("  Radiohead  "), "radiohead");
+        assert_eq!(normalize_artist("  Autechre  "), "autechre");
     }
 
     #[test]
     fn test_normalize_all_caps() {
-        assert_eq!(normalize_artist("RADIOHEAD"), "radiohead");
+        assert_eq!(normalize_artist("AUTECHRE"), "autechre");
     }
 
     #[test]
@@ -147,8 +147,8 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_bjork() {
-        assert_eq!(normalize_artist("Björk"), "bjork");
+    fn test_normalize_yanya() {
+        assert_eq!(normalize_artist("Nilüfer Yanya"), "nilufer yanya");
     }
 
     #[test]
@@ -180,13 +180,13 @@ mod tests {
     fn test_filter_from_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("artists.txt");
-        fs::write(&path, "Radiohead\nBjörk\n  Joy Division  \n\n").unwrap();
+        fs::write(&path, "Autechre\nNilüfer Yanya\n  Father John Misty  \n\n").unwrap();
 
         let filter = ArtistFilter::from_file(&path).unwrap();
         assert_eq!(filter.len(), 3);
-        assert!(filter.matches_any(["Radiohead"].iter().copied()));
-        assert!(filter.matches_any(["Björk"].iter().copied()));
-        assert!(filter.matches_any(["joy division"].iter().copied()));
+        assert!(filter.matches_any(["Autechre"].iter().copied()));
+        assert!(filter.matches_any(["Nilüfer Yanya"].iter().copied()));
+        assert!(filter.matches_any(["father john misty"].iter().copied()));
         assert!(!filter.matches_any(["Unknown Artist"].iter().copied()));
     }
 
@@ -194,12 +194,12 @@ mod tests {
     fn test_filter_matches_any() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("artists.txt");
-        fs::write(&path, "Radiohead\nBjörk\n").unwrap();
+        fs::write(&path, "Autechre\nNilüfer Yanya\n").unwrap();
 
         let filter = ArtistFilter::from_file(&path).unwrap();
 
         // Match on any one of multiple names
-        assert!(filter.matches_any(["Unknown", "Radiohead"].iter().copied()));
+        assert!(filter.matches_any(["Unknown", "Autechre"].iter().copied()));
         // No match
         assert!(!filter.matches_any(["Unknown", "Other"].iter().copied()));
     }
@@ -208,19 +208,19 @@ mod tests {
     fn test_load_aliases_and_match() {
         let dir = tempfile::tempdir().unwrap();
 
-        // Library has "Puff Daddy"
+        // Library has "Sun Ra Arkestra" (an alias of canonical "Sun Ra")
         let lib_path = dir.path().join("artists.txt");
-        fs::write(&lib_path, "Puff Daddy\n").unwrap();
+        fs::write(&lib_path, "Sun Ra Arkestra\n").unwrap();
 
-        // artist_alias.csv: artist 123 has alias "Puff Daddy"
+        // artist_alias.csv: artist 123 has alias "Sun Ra Arkestra"
         let alias_path = dir.path().join("artist_alias.csv");
         fs::write(
             &alias_path,
             "artist_id,artist_name,alias_name\n\
-             123,P. Diddy,P Diddy\n\
-             123,P. Diddy,Puff Daddy\n\
-             123,P. Diddy,Sean Combs\n\
-             123,P. Diddy,Diddy\n",
+             123,Sun Ra,Le Sony'r Ra\n\
+             123,Sun Ra,Sonny Ra\n\
+             123,Sun Ra,Sun Ra Arkestra\n\
+             123,Sun Ra,Sun Ra And His Arkestra\n",
         )
         .unwrap();
 
@@ -229,9 +229,9 @@ mod tests {
         assert_eq!(count, 4);
         assert!(filter.has_aliases());
 
-        // "P. Diddy" doesn't match directly, but alias lookup finds "Puff Daddy"
-        assert!(!filter.matches_any(["P. Diddy"].iter().copied()));
-        assert!(filter.matches_any_with_ids(&[(123, "P. Diddy")]));
+        // "Sun Ra" doesn't match directly, but alias lookup finds "Sun Ra Arkestra"
+        assert!(!filter.matches_any(["Sun Ra"].iter().copied()));
+        assert!(filter.matches_any_with_ids(&[(123, "Sun Ra")]));
 
         // Unknown artist doesn't match
         assert!(!filter.matches_any_with_ids(&[(999, "Unknown")]));
@@ -243,9 +243,9 @@ mod tests {
     #[test]
     fn test_normalize_trim_optimization_paths() {
         // No trimming needed — fast path (no extra allocation)
-        assert_eq!(normalize_artist("Radiohead"), "radiohead");
+        assert_eq!(normalize_artist("Autechre"), "autechre");
         // Trimming needed — allocates trimmed copy
-        assert_eq!(normalize_artist("  Radiohead  "), "radiohead");
+        assert_eq!(normalize_artist("  Autechre  "), "autechre");
         // Only leading space
         assert_eq!(normalize_artist("  Björk"), "bjork");
         // Only trailing space
@@ -264,11 +264,11 @@ mod tests {
         #[test]
         fn parity_diacritics() {
             let cases = [
-                "Björk",
-                "Sigur Rós",
+                "Nilüfer Yanya",
+                "Hermanos Gutiérrez",
+                "Csillagrablók",
                 "Motörhead",
                 "Hüsker Dü",
-                "Café Tacvba",
                 "Zoé",
             ];
             for name in cases {
@@ -294,7 +294,7 @@ mod tests {
 
         #[test]
         fn parity_whitespace() {
-            let cases = ["  Radiohead  ", "  Björk", "Zoé  ", "  Mixed Case  "];
+            let cases = ["  Autechre  ", "  Nilüfer Yanya", "Zoé  ", "  Mixed Case  "];
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
@@ -306,7 +306,7 @@ mod tests {
 
         #[test]
         fn parity_case() {
-            let cases = ["RADIOHEAD", "radiohead", "Radiohead", "rAdIoHeAd"];
+            let cases = ["AUTECHRE", "autechre", "Autechre", "aUtEcHrE"];
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
@@ -349,12 +349,12 @@ mod tests {
     fn test_matches_any_with_ids_canonical_name_still_works() {
         let dir = tempfile::tempdir().unwrap();
         let lib_path = dir.path().join("artists.txt");
-        fs::write(&lib_path, "Radiohead\n").unwrap();
+        fs::write(&lib_path, "Autechre\n").unwrap();
 
         let filter = ArtistFilter::from_file(&lib_path).unwrap();
 
         // Even without aliases, canonical name matching works
-        assert!(filter.matches_any_with_ids(&[(300, "Radiohead")]));
+        assert!(filter.matches_any_with_ids(&[(300, "Autechre")]));
         assert!(!filter.matches_any_with_ids(&[(300, "Unknown")]));
     }
 }

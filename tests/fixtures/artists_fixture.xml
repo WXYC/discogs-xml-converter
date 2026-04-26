@@ -2,28 +2,28 @@
 <artists>
   <artist>
     <id>123</id>
-    <name>P. Diddy</name>
-    <realname>Sean John Combs</realname>
-    <profile>American rapper, singer, record producer, and entrepreneur.</profile>
+    <name>Sun Ra</name>
+    <realname>Herman Poole Blount</realname>
+    <profile>American jazz composer, bandleader, piano and synthesizer player.</profile>
     <namevariations>
-      <name>P Diddy</name>
-      <name>Puff Daddy</name>
+      <name>Le Sony'r Ra</name>
+      <name>Sonny Ra</name>
     </namevariations>
     <aliases>
-      <name id="456">Sean Combs</name>
-      <name id="789">Diddy</name>
+      <name id="456">Sun Ra Arkestra</name>
+      <name id="789">Sun Ra And His Arkestra</name>
     </aliases>
     <members>
-      <name id="1001">Member One</name>
+      <name id="1001">Marshall Allen</name>
     </members>
   </artist>
   <artist>
     <id>200</id>
-    <name>Björk</name>
-    <realname>Björk Guðmundsdóttir</realname>
+    <name>Nilüfer Yanya</name>
+    <realname>Nilüfer Yanya Mughal</realname>
     <namevariations>
-      <name>Bjork</name>
-      <name>Björk Guðmundsdóttir</name>
+      <name>Nilufer Yanya</name>
+      <name>Nilüfer Yanya Mughal</name>
     </namevariations>
     <aliases>
     </aliases>
@@ -32,21 +32,18 @@
   </artist>
   <artist>
     <id>300</id>
-    <name>Radiohead</name>
+    <name>Autechre</name>
     <realname></realname>
-    <profile>English rock band formed in Abingdon, Oxfordshire, in 1985.&#13;
-The band consists of Thom Yorke, Jonny Greenwood, Colin Greenwood, Ed O'Brien &amp; Philip Selway.</profile>
+    <profile>English electronic music duo formed in Rochdale, Greater Manchester, in 1987.&#13;
+The duo consists of Sean Booth &amp; Rob Brown.</profile>
     <namevariations>
-      <name>Radio Head</name>
+      <name>Ae</name>
     </namevariations>
     <aliases>
     </aliases>
     <members>
-      <name id="301">Thom Yorke</name>
-      <name id="302">Jonny Greenwood</name>
-      <name id="303">Colin Greenwood</name>
-      <name id="304">Ed O'Brien</name>
-      <name id="305">Philip Selway</name>
+      <name id="301">Sean Booth</name>
+      <name id="302">Rob Brown</name>
     </members>
   </artist>
   <artist>

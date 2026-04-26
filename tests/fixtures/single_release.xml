@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <releases>
   <release id="1001" status="Accepted">
-    <title>OK Computer</title>
+    <title>Confield</title>
     <country>UK</country>
-    <released>1997-06-16</released>
+    <released>2001-04-09</released>
     <notes></notes>
     <data_quality>Correct</data_quality>
     <master_id>500</master_id>
     <artists>
       <artist>
         <id>1</id>
-        <name>Radiohead</name>
+        <name>Autechre</name>
         <anv></anv>
         <join></join>
       </artist>
@@ -25,8 +25,8 @@
       </artist>
     </extraartists>
     <labels>
-      <label name="Parlophone" catno="7243 8 55229 2 8" />
-      <label name="Capitol Records" catno="CDP 7243 8 55229 2 8" />
+      <label name="Warp Records" catno="WARPCD128" />
+      <label name="Warp Records" catno="WARP CD 128" />
     </labels>
     <formats>
       <format name="CD" qty="1" text="">
@@ -36,18 +36,18 @@
     <tracklist>
       <track>
         <position>1</position>
-        <title>Airbag</title>
-        <duration>4:44</duration>
+        <title>VI Scose Poise</title>
+        <duration>7:11</duration>
       </track>
       <track>
         <position>2</position>
-        <title>Paranoid Android</title>
-        <duration>6:23</duration>
+        <title>Cfern</title>
+        <duration>7:54</duration>
       </track>
       <track>
         <position>3</position>
-        <title>Subterranean Homesick Alien</title>
-        <duration>4:27</duration>
+        <title>Pen Expers</title>
+        <duration>5:54</duration>
       </track>
     </tracklist>
     <images>
@@ -79,11 +79,11 @@
     </companies>
     <videos>
       <video src="https://www.youtube.com/watch?v=afMHNll9EVM" duration="325" embed="true">
-        <title>Radiohead - Paranoid Android</title>
-        <description>https://www.discogs.com/Radiohead-OK-Computer/release/1001</description>
+        <title>Autechre - Cfern</title>
+        <description>https://www.discogs.com/Autechre-Confield/release/1001</description>
       </video>
       <video src="https://www.youtube.com/watch?v=XExCZfMCXdo" duration="175" embed="true">
-        <title>Radiohead - Airbag</title>
+        <title>Autechre - VI Scose Poise</title>
         <description></description>
       </video>
     </videos>

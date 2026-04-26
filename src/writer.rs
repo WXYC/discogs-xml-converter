@@ -308,9 +308,9 @@ mod tests {
         Release {
             id: 1001,
             status: "Accepted".to_string(),
-            title: "OK Computer".to_string(),
+            title: "Confield".to_string(),
             country: "UK".to_string(),
-            released: "1997-06-16".to_string(),
+            released: "2001-04-09".to_string(),
             notes: "".to_string(),
             data_quality: "Correct".to_string(),
             master_id: Some(500),
@@ -320,7 +320,7 @@ mod tests {
             }],
             artists: vec![ReleaseArtist {
                 artist_id: 1,
-                name: "Radiohead".to_string(),
+                name: "Autechre".to_string(),
                 anv: "".to_string(),
                 join_field: "".to_string(),
                 position: 1,
@@ -334,33 +334,33 @@ mod tests {
             }],
             labels: vec![
                 ReleaseLabel {
-                    name: "Parlophone".to_string(),
-                    catno: "7243 8 55229 2 8".to_string(),
+                    name: "Warp Records".to_string(),
+                    catno: "WARPCD128".to_string(),
                 },
                 ReleaseLabel {
-                    name: "Capitol Records".to_string(),
-                    catno: "CDP 7243 8 55229 2 8".to_string(),
+                    name: "Warp Records".to_string(),
+                    catno: "WARP CD 128".to_string(),
                 },
             ],
             tracks: vec![
                 ReleaseTrack {
                     position: "1".to_string(),
-                    title: "Airbag".to_string(),
-                    duration: "4:44".to_string(),
+                    title: "VI Scose Poise".to_string(),
+                    duration: "7:11".to_string(),
                     artists: vec![],
                     extra_artists: vec![],
                 },
                 ReleaseTrack {
                     position: "2".to_string(),
-                    title: "Paranoid Android".to_string(),
-                    duration: "6:23".to_string(),
+                    title: "Cfern".to_string(),
+                    duration: "7:54".to_string(),
                     artists: vec![],
                     extra_artists: vec![],
                 },
                 ReleaseTrack {
                     position: "3".to_string(),
-                    title: "Subterranean Homesick Alien".to_string(),
-                    duration: "4:27".to_string(),
+                    title: "Pen Expers".to_string(),
+                    duration: "5:54".to_string(),
                     artists: vec![],
                     extra_artists: vec![],
                 },
@@ -476,7 +476,7 @@ mod tests {
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(&records[0][0], "1001");
-        assert_eq!(&records[0][2], "OK Computer");
+        assert_eq!(&records[0][2], "Confield");
         assert_eq!(&records[0][7], "500");
         assert_eq!(&records[0][8], "CD");
 
@@ -484,7 +484,7 @@ mod tests {
         let mut rdr = csv::Reader::from_path(dir.path().join("release_artist.csv")).unwrap();
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
         assert_eq!(records.len(), 2);
-        assert_eq!(&records[0][2], "Radiohead");
+        assert_eq!(&records[0][2], "Autechre");
         assert_eq!(&records[0][3], "0"); // extra=0
         assert_eq!(&records[1][2], "Some Producer");
         assert_eq!(&records[1][3], "1"); // extra=1
@@ -494,7 +494,7 @@ mod tests {
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
         assert_eq!(records.len(), 3);
         assert_eq!(&records[0][1], "1"); // sequence
-        assert_eq!(&records[0][3], "Airbag");
+        assert_eq!(&records[0][3], "VI Scose Poise");
 
         // Check genres
         let mut rdr = csv::Reader::from_path(dir.path().join("release_genre.csv")).unwrap();
@@ -535,7 +535,7 @@ mod tests {
             notes: "Line 1\nLine 2".to_string(),
             artists: vec![ReleaseArtist {
                 artist_id: 1,
-                name: "Beatles, The".to_string(),
+                name: "Field, The".to_string(),
                 position: 1,
                 ..Default::default()
             }],
@@ -553,7 +553,7 @@ mod tests {
 
         let mut rdr = csv::Reader::from_path(dir.path().join("release_artist.csv")).unwrap();
         let record = rdr.records().next().unwrap().unwrap();
-        assert_eq!(&record[2], "Beatles, The");
+        assert_eq!(&record[2], "Field, The");
     }
 
     #[test]
@@ -572,19 +572,19 @@ mod tests {
             tracks: vec![
                 ReleaseTrack {
                     position: "A1".to_string(),
-                    title: "Rapper's Delight".to_string(),
-                    duration: "14:35".to_string(),
+                    title: "Tuhkimo".to_string(),
+                    duration: "4:08".to_string(),
                     artists: vec![TrackArtist {
-                        name: "Sugarhill Gang".to_string(),
+                        name: "Hedningarna".to_string(),
                     }],
                     extra_artists: vec![],
                 },
                 ReleaseTrack {
                     position: "A2".to_string(),
-                    title: "Apache".to_string(),
-                    duration: "5:35".to_string(),
+                    title: "Vedergällningen".to_string(),
+                    duration: "5:12".to_string(),
                     artists: vec![TrackArtist {
-                        name: "Incredible Bongo Band".to_string(),
+                        name: "Garmarna".to_string(),
                     }],
                     extra_artists: vec![],
                 },
@@ -600,9 +600,9 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(&records[0][0], "8001"); // release_id
         assert_eq!(&records[0][1], "1"); // track_sequence
-        assert_eq!(&records[0][2], "Sugarhill Gang");
+        assert_eq!(&records[0][2], "Hedningarna");
         assert_eq!(&records[1][1], "2");
-        assert_eq!(&records[1][2], "Incredible Bongo Band");
+        assert_eq!(&records[1][2], "Garmarna");
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
             id: 1001,
             artists: vec![ReleaseArtist {
                 artist_id: 1,
-                name: "Radiohead".to_string(),
+                name: "Autechre".to_string(),
                 position: 1,
                 ..Default::default()
             }],

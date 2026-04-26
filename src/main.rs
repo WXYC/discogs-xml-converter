@@ -719,15 +719,15 @@ mod tests {
     fn test_matches_filter_without_aliases() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("artists.txt");
-        std::fs::write(&path, "Radiohead\nBjörk\n").unwrap();
+        std::fs::write(&path, "Autechre\nNilüfer Yanya\n").unwrap();
         let filter = ArtistFilter::from_file(&path).unwrap();
 
         // Main artist matches
-        let release = make_release(vec![(1, "Radiohead")], vec![]);
+        let release = make_release(vec![(1, "Autechre")], vec![]);
         assert!(matches_filter(&filter, &release));
 
         // Extra artist matches
-        let release = make_release(vec![(99, "Unknown")], vec![(5, "Björk")]);
+        let release = make_release(vec![(99, "Unknown")], vec![(5, "Nilüfer Yanya")]);
         assert!(matches_filter(&filter, &release));
 
         // No match
@@ -739,12 +739,12 @@ mod tests {
     fn test_matches_filter_with_aliases() {
         let dir = tempfile::tempdir().unwrap();
         let lib_path = dir.path().join("artists.txt");
-        std::fs::write(&lib_path, "Puff Daddy\n").unwrap();
+        std::fs::write(&lib_path, "Sun Ra Arkestra\n").unwrap();
 
         let alias_path = dir.path().join("artist_alias.csv");
         std::fs::write(
             &alias_path,
-            "artist_id,artist_name,alias_name\n123,P. Diddy,Puff Daddy\n",
+            "artist_id,artist_name,alias_name\n123,Sun Ra,Sun Ra Arkestra\n",
         )
         .unwrap();
 
@@ -752,7 +752,7 @@ mod tests {
         filter.load_aliases(&alias_path).unwrap();
 
         // Canonical name doesn't match, but alias does via artist_id
-        let release = make_release(vec![(123, "P. Diddy")], vec![]);
+        let release = make_release(vec![(123, "Sun Ra")], vec![]);
         assert!(matches_filter(&filter, &release));
 
         // Unknown artist doesn't match

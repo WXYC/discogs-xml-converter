@@ -207,14 +207,17 @@ mod tests {
         let mut artists = Vec::new();
         parse_artists(&path, |a| artists.push(a)).unwrap();
 
-        let pdiddy = &artists[0];
-        assert_eq!(pdiddy.id, 123);
-        assert_eq!(pdiddy.name, "P. Diddy");
-        assert_eq!(pdiddy.name_variations, vec!["P Diddy", "Puff Daddy"]);
-        assert_eq!(pdiddy.aliases, vec!["Sean Combs", "Diddy"]);
-        assert_eq!(pdiddy.members.len(), 1);
-        assert_eq!(pdiddy.members[0].id, 1001);
-        assert_eq!(pdiddy.members[0].name, "Member One");
+        let sun_ra = &artists[0];
+        assert_eq!(sun_ra.id, 123);
+        assert_eq!(sun_ra.name, "Sun Ra");
+        assert_eq!(sun_ra.name_variations, vec!["Le Sony'r Ra", "Sonny Ra"]);
+        assert_eq!(
+            sun_ra.aliases,
+            vec!["Sun Ra Arkestra", "Sun Ra And His Arkestra"]
+        );
+        assert_eq!(sun_ra.members.len(), 1);
+        assert_eq!(sun_ra.members[0].id, 1001);
+        assert_eq!(sun_ra.members[0].name, "Marshall Allen");
     }
 
     #[test]
@@ -223,11 +226,14 @@ mod tests {
         let mut artists = Vec::new();
         parse_artists(&path, |a| artists.push(a)).unwrap();
 
-        let bjork = &artists[1];
-        assert_eq!(bjork.id, 200);
-        assert_eq!(bjork.name, "Björk");
-        assert_eq!(bjork.name_variations, vec!["Bjork", "Björk Guðmundsdóttir"]);
-        assert!(bjork.aliases.is_empty());
+        let yanya = &artists[1];
+        assert_eq!(yanya.id, 200);
+        assert_eq!(yanya.name, "Nilüfer Yanya");
+        assert_eq!(
+            yanya.name_variations,
+            vec!["Nilufer Yanya", "Nilüfer Yanya Mughal"]
+        );
+        assert!(yanya.aliases.is_empty());
     }
 
     #[test]
@@ -236,12 +242,12 @@ mod tests {
         let mut artists = Vec::new();
         parse_artists(&path, |a| artists.push(a)).unwrap();
 
-        let radiohead = &artists[2];
-        assert_eq!(radiohead.id, 300);
-        assert_eq!(radiohead.name, "Radiohead");
-        assert_eq!(radiohead.members.len(), 5);
-        assert_eq!(radiohead.members[0].id, 301);
-        assert_eq!(radiohead.members[0].name, "Thom Yorke");
+        let autechre = &artists[2];
+        assert_eq!(autechre.id, 300);
+        assert_eq!(autechre.name, "Autechre");
+        assert_eq!(autechre.members.len(), 2);
+        assert_eq!(autechre.members[0].id, 301);
+        assert_eq!(autechre.members[0].name, "Sean Booth");
     }
 
     #[test]
@@ -250,21 +256,21 @@ mod tests {
         let mut artists = Vec::new();
         parse_artists(&path, |a| artists.push(a)).unwrap();
 
-        let pdiddy = &artists[0];
+        let sun_ra = &artists[0];
         assert_eq!(
-            pdiddy.profile,
-            "American rapper, singer, record producer, and entrepreneur."
+            sun_ra.profile,
+            "American jazz composer, bandleader, piano and synthesizer player."
         );
 
-        // Radiohead has a multi-line profile with HTML entities
-        let radiohead = &artists[2];
-        assert!(radiohead.profile.starts_with("English rock band"));
-        assert!(radiohead.profile.contains("Thom Yorke"));
-        assert!(radiohead.profile.contains("Ed O'Brien & Philip Selway"));
+        // Autechre has a multi-line profile with HTML entities
+        let autechre = &artists[2];
+        assert!(autechre.profile.starts_with("English electronic music duo"));
+        assert!(autechre.profile.contains("Sean Booth"));
+        assert!(autechre.profile.contains("Sean Booth & Rob Brown"));
 
-        // Björk has no profile
-        let bjork = &artists[1];
-        assert!(bjork.profile.is_empty());
+        // Nilüfer Yanya has no profile
+        let yanya = &artists[1];
+        assert!(yanya.profile.is_empty());
     }
 
     #[test]
