@@ -11,13 +11,12 @@ flate2 = "1.0"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 log = "0.4"
-env_logger = "0.11"
 crossbeam-channel = "0.5"
 memchr = "2"
 rayon = "1.10"
 postgres = "0.19"
 itoa = "1"
-wxyc-etl = { git = "https://github.com/WXYC/wxyc-etl.git", branch = "etl-unification/3a-combined-deps", package = "wxyc-etl" }
+wxyc-etl = { git = "https://github.com/WXYC/wxyc-etl.git", branch = "main", package = "wxyc-etl" }
 
 [dev-dependencies]
 tempfile = "3"

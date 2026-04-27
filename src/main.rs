@@ -549,7 +549,12 @@ fn matches_filter(filter: &ArtistFilter, release: &discogs_xml_converter::model:
 }
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    let _logger_guard = wxyc_etl::logger::init(wxyc_etl::logger::LoggerConfig {
+        repo: "discogs-xml-converter",
+        tool: "discogs-xml-converter",
+        sentry_dsn: None,
+        run_id: None,
+    });
 
     let cli = Cli::parse();
 
