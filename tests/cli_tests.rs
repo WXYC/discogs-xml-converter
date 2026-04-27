@@ -122,6 +122,41 @@ fn test_help() {
 }
 
 #[test]
+fn test_emits_json_logs_without_sentry_dsn() {
+    use std::process::Command as StdCommand;
+
+    let dir = tempfile::tempdir().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("discogs-xml-converter");
+
+    let output = StdCommand::new(&bin)
+        .env_remove("SENTRY_DSN")
+        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
+        .arg("--output-dir")
+        .arg(dir.path().to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "binary must run with SENTRY_DSN unset; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let has_json_line = stderr.lines().chain(stdout.lines()).any(|line| {
+        line.trim_start().starts_with('{')
+            && line.contains("\"level\"")
+            && line.contains("\"timestamp\"")
+    });
+    assert!(
+        has_json_line,
+        "expected at least one JSON log line; stderr=\n{}\nstdout=\n{}",
+        stderr, stdout
+    );
+}
+
+#[test]
 fn test_missing_required_args() {
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()

@@ -70,6 +70,18 @@ cargo build --release   # produces target/release/discogs-xml-converter
 - `cargo clippy` for linting
 - Targets macOS ARM64 and Linux x86_64
 
+## Observability
+
+`main.rs` initializes `wxyc_etl::logger` at startup. Logs emit as one JSON object per line on stdout; panics and `tracing::error!` events forward to Sentry when `SENTRY_DSN` is set in the environment. Without a DSN, JSON logging still works and Sentry stays inactive.
+
+Sentry tags applied to every event:
+- `repo` -- `discogs-xml-converter`
+- `tool` -- `discogs-xml-converter`
+- `run_id` -- UUIDv4 generated per process invocation
+- `step` -- set per-span via `tracing::info_span!("...", step = "...")`
+
+TODO: provision `SENTRY_DSN` in the environments that invoke this tool (discogs-etl GitHub Actions workflow + any manual cache rebuild scripts on EC2). DSN provisioning is tracked separately from this wireup.
+
 ## Key Design Decisions
 
 - Artist normalization delegates to `wxyc_etl::text::normalize_artist_name()`, the shared implementation that all WXYC ETL repos use for normalization parity. Parity tests in `filter.rs` verify equivalence.
