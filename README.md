@@ -12,48 +12,85 @@ Replaces three Python scripts with a single binary:
 
 ## Usage
 
-```bash
-# Convert all releases to CSV (drop-in replacement for discogs-xml2db)
-discogs-xml-converter releases.xml.gz --output-dir /path/to/csv/
+The CLI follows the WXYC cache-builder convention with two subcommands:
 
-# Convert and filter to library artists only (replaces xml2db + fix + filter)
-discogs-xml-converter releases.xml.gz --output-dir /path/to/filtered/ \
+```text
+discogs-xml-converter build  <input> [--data-dir DIR] [--library-artists FILE] [--limit N] [--resume]
+discogs-xml-converter import <input> [--database-url URL] [--data-dir DIR] [--fresh] [--batch-size N]
+```
+
+`build` writes CSV files; `import` streams releases directly into PostgreSQL via COPY.
+
+### `build` — XML to CSV
+
+```bash
+# Convert all releases to CSV
+discogs-xml-converter build releases.xml.gz --data-dir /path/to/csv/
+
+# Convert and filter to library artists only
+discogs-xml-converter build releases.xml.gz --data-dir /path/to/filtered/ \
   --library-artists library_artists.txt
 
 # Limit records for testing
-discogs-xml-converter releases.xml.gz --output-dir /tmp/test/ --limit 100
+discogs-xml-converter build releases.xml.gz --data-dir /tmp/test/ --limit 100
 ```
 
-### Direct-to-PostgreSQL mode
+### `import` — XML to PostgreSQL
 
-Stream releases directly into PostgreSQL, bypassing the CSV round-trip:
+`--database-url` is required; if omitted the CLI falls back to the `DATABASE_URL_DISCOGS` environment variable.
 
 ```bash
 # Stream releases directly into PostgreSQL
-discogs-xml-converter /path/to/xml-dumps/ \
-  --output-dir /path/to/supplementary/ \
+discogs-xml-converter import /path/to/xml-dumps/ \
+  --data-dir /path/to/supplementary/ \
   --library-artists library_artists.txt \
   --database-url postgresql://localhost:5432/discogs
 
-# With custom batch size (default: 10000)
-discogs-xml-converter releases.xml.gz \
-  --output-dir /tmp/out/ \
+# Same, using DATABASE_URL_DISCOGS env var
+DATABASE_URL_DISCOGS=postgresql://localhost:5432/discogs \
+  discogs-xml-converter import /path/to/xml-dumps/ \
+    --library-artists library_artists.txt
+
+# Drop existing release rows before importing (--fresh truncates release CASCADE)
+discogs-xml-converter import releases.xml.gz \
   --database-url postgresql://localhost:5432/discogs \
-  --batch-size 5000
+  --fresh
+
+# Tune batch size (default: 100000)
+discogs-xml-converter import releases.xml.gz \
+  --database-url postgresql://localhost:5432/discogs \
+  --batch-size 50000
 ```
 
-When `--database-url` is provided, releases are streamed into PostgreSQL via COPY instead of being written to CSV files. Supplementary CSVs (artist_alias.csv, label_hierarchy.csv) are still written to `--output-dir`.
+Supplementary CSVs (artist_alias.csv, label_hierarchy.csv) are still written to `--data-dir` in directory-input mode.
 
 ### Options
 
+Common to both subcommands:
+
 | Flag | Description |
 |---|---|
-| `--output-dir DIR` | Output directory for CSV files (required) |
+| `--data-dir DIR` | Working directory for CSV outputs (default: `./data`) |
 | `--library-artists FILE` | Filter to releases by artists in this file (one per line) |
 | `--limit N` | Stop after N releases |
 | `--progress-interval N` | Log progress every N releases (default: 100000) |
-| `--database-url URL` | Stream releases directly into PostgreSQL via COPY |
-| `--batch-size N` | Releases to buffer before flushing to PostgreSQL (default: 10000) |
+
+`build` only:
+
+| Flag | Description |
+|---|---|
+| `--resume` | Reserved for future resumable builds (currently a no-op; this tool is single-pass) |
+| `--state-file FILE` | Path to the state file used by `--resume` (default: `./state.json`) |
+
+`import` only:
+
+| Flag | Description |
+|---|---|
+| `--database-url URL` | PostgreSQL connection URL. Falls back to `DATABASE_URL_DISCOGS` |
+| `--fresh` | `TRUNCATE release ... CASCADE` before importing |
+| `--batch-size N` | Releases to buffer before flushing to PostgreSQL (default: 100000) |
+
+`--output-dir` is accepted as a deprecated alias for `--data-dir` and emits a stderr warning. It will be removed in the next release.
 
 Gzipped input is auto-detected by `.gz` extension.
 
@@ -125,8 +162,8 @@ Feed the output into the `--csv-dir` pipeline mode:
 
 ```bash
 # Convert and filter
-discogs-xml-converter releases.xml.gz \
-  --output-dir /path/to/filtered/ \
+discogs-xml-converter build releases.xml.gz \
+  --data-dir /path/to/filtered/ \
   --library-artists library_artists.txt
 
 # Run database build
