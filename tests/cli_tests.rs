@@ -29,8 +29,9 @@ fn test_missing_artists_xml_in_directory_mode() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
+        .arg("build")
         .arg(input_dir.path().to_str().unwrap())
-        .arg("--output-dir")
+        .arg("--data-dir")
         .arg(output_dir.path().to_str().unwrap())
         .assert()
         .success();
@@ -91,8 +92,9 @@ fn test_release_with_many_artists_no_oom() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
+        .arg("build")
         .arg(xml_path.to_str().unwrap())
-        .arg("--output-dir")
+        .arg("--data-dir")
         .arg(output_dir.path().to_str().unwrap())
         .assert()
         .success();
@@ -112,13 +114,14 @@ fn test_release_with_many_artists_no_oom() {
 }
 
 #[test]
-fn test_help() {
+fn test_help_lists_subcommands() {
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Convert Discogs XML"));
+        .stdout(predicate::str::contains("build"))
+        .stdout(predicate::str::contains("import"));
 }
 
 #[test]
@@ -130,8 +133,9 @@ fn test_emits_json_logs_without_sentry_dsn() {
 
     let output = StdCommand::new(&bin)
         .env_remove("SENTRY_DSN")
+        .arg("build")
         .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
-        .arg("--output-dir")
+        .arg("--data-dir")
         .arg(dir.path().to_str().unwrap())
         .output()
         .unwrap();
@@ -157,7 +161,30 @@ fn test_emits_json_logs_without_sentry_dsn() {
 }
 
 #[test]
-fn test_missing_required_args() {
+fn test_build_help_shows_data_dir_and_resume() {
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--data-dir"))
+        .stdout(predicate::str::contains("--state-file"))
+        .stdout(predicate::str::contains("--resume"));
+}
+
+#[test]
+fn test_import_help_shows_database_url_and_fresh() {
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args(["import", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--database-url"))
+        .stdout(predicate::str::contains("--fresh"));
+}
+
+#[test]
+fn test_no_subcommand_fails() {
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
         .assert()
@@ -165,12 +192,43 @@ fn test_missing_required_args() {
 }
 
 #[test]
-fn test_missing_output_dir() {
+fn test_build_requires_input() {
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("single_release.xml").to_str().unwrap())
+        .arg("build")
         .assert()
         .failure();
+}
+
+#[test]
+fn test_import_without_database_url_or_env_fails() {
+    // Clear the env var so the fallback doesn't kick in.
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .env_remove("DATABASE_URL_DISCOGS")
+        .args([
+            "import",
+            fixture_path("single_release.xml").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("DATABASE_URL_DISCOGS"));
+}
+
+#[test]
+fn test_import_uses_database_url_env_fallback() {
+    // The env var resolves but the URL is unreachable; the failure must come
+    // from the connection attempt, not from the missing-flag path.
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .env("DATABASE_URL_DISCOGS", "postgresql://127.0.0.1:1/never")
+        .args([
+            "import",
+            fixture_path("single_release.xml").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("DATABASE_URL_DISCOGS").not());
 }
 
 #[test]
@@ -179,9 +237,12 @@ fn test_end_to_end() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
-        .arg("--output-dir")
-        .arg(dir.path().to_str().unwrap())
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -198,15 +259,8 @@ fn test_end_to_end() {
         assert!(path.exists(), "{} should exist", filename);
     }
 
-    // Check row counts
-    let count_records = |filename: &str| -> usize {
-        let path = dir.path().join(filename);
-        let mut rdr = csv::Reader::from_path(&path).unwrap();
-        rdr.records().count()
-    };
-
-    // releases_fixture.xml has 16 releases, all with artists (none skipped)
-    assert_eq!(count_records("release.csv"), 16);
+    let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+    assert_eq!(rdr.records().count(), 16);
 }
 
 #[test]
@@ -215,11 +269,14 @@ fn test_with_library_artists_filter() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
-        .arg("--output-dir")
-        .arg(dir.path().to_str().unwrap())
-        .arg("--library-artists")
-        .arg(fixture_path("library_artists.txt").to_str().unwrap())
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--library-artists",
+            fixture_path("library_artists.txt").to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -239,11 +296,14 @@ fn test_limit() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
-        .arg("--output-dir")
-        .arg(dir.path().to_str().unwrap())
-        .arg("--limit")
-        .arg("5")
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--limit",
+            "5",
+        ])
         .assert()
         .success();
 
@@ -258,9 +318,12 @@ fn test_gzipped_input() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("releases_fixture.xml.gz").to_str().unwrap())
-        .arg("--output-dir")
-        .arg(dir.path().to_str().unwrap())
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml.gz").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -271,11 +334,9 @@ fn test_gzipped_input() {
 
 #[test]
 fn test_directory_input() {
-    // Create a temp directory with symlinks to fixture XML files
     let input_dir = tempfile::tempdir().unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
-    // Copy fixture files to simulate a directory of XML dumps
     std::fs::copy(
         fixture_path("releases_fixture.xml"),
         input_dir.path().join("releases.xml"),
@@ -294,17 +355,17 @@ fn test_directory_input() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(input_dir.path().to_str().unwrap())
-        .arg("--output-dir")
-        .arg(output_dir.path().to_str().unwrap())
+        .args([
+            "build",
+            input_dir.path().to_str().unwrap(),
+            "--data-dir",
+            output_dir.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 
-    // Check release CSV files exist (same as single file mode)
     assert!(output_dir.path().join("release.csv").exists());
     assert!(output_dir.path().join("release_artist.csv").exists());
-
-    // Check artist and label CSV files exist
     assert!(
         output_dir.path().join("artist_alias.csv").exists(),
         "artist_alias.csv should be created"
@@ -318,14 +379,10 @@ fn test_directory_input() {
         "label_hierarchy.csv should be created"
     );
 
-    // Check content of label_hierarchy.csv
     let mut rdr = csv::Reader::from_path(output_dir.path().join("label_hierarchy.csv")).unwrap();
     let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
-    // 4 labels have parents: Parlophone->EMI, Capitol Records->EMI,
-    // Matador Records->Beggars Group, 4AD->Beggars Group
     assert_eq!(records.len(), 4, "Expected 4 label hierarchy entries");
 
-    // Check releases were processed
     let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
     assert_eq!(count, 16, "Expected 16 releases (no filter)");
@@ -333,22 +390,15 @@ fn test_directory_input() {
 
 #[test]
 fn test_directory_input_with_alias_filtering() {
-    // Test that alias-enhanced filtering works end-to-end.
-    // The releases_fixture.xml has a release credited to "Field, The" (id 8).
-    // The library_artists.txt has "The Field".
-    // Without aliases, "Field, The" != "The Field" (no match).
-    // We'll create an artists.xml that maps artist_id 8 to alias "The Field".
     let input_dir = tempfile::tempdir().unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
-    // Copy releases fixture
     std::fs::copy(
         fixture_path("releases_fixture.xml"),
         input_dir.path().join("releases.xml"),
     )
     .unwrap();
 
-    // Create a custom artists.xml that maps artist_id 8 to alias "The Field"
     let artists_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <artists>
   <artist>
@@ -364,16 +414,17 @@ fn test_directory_input_with_alias_filtering() {
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(input_dir.path().to_str().unwrap())
-        .arg("--output-dir")
-        .arg(output_dir.path().to_str().unwrap())
-        .arg("--library-artists")
-        .arg(fixture_path("library_artists.txt").to_str().unwrap())
+        .args([
+            "build",
+            input_dir.path().to_str().unwrap(),
+            "--data-dir",
+            output_dir.path().to_str().unwrap(),
+            "--library-artists",
+            fixture_path("library_artists.txt").to_str().unwrap(),
+        ])
         .assert()
         .success();
 
-    // Without alias: 9 matches. With alias: "Field, The" now matches via
-    // alias "The Field" -> should be 10.
     let mut rdr = csv::Reader::from_path(output_dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
     assert_eq!(
@@ -383,31 +434,51 @@ fn test_directory_input_with_alias_filtering() {
 }
 
 #[test]
-fn test_single_file_backward_compatible() {
-    // Verify single file mode still works identically
+fn test_single_file_build_mode() {
     let dir = tempfile::tempdir().unwrap();
 
     Command::cargo_bin("discogs-xml-converter")
         .unwrap()
-        .arg(fixture_path("releases_fixture.xml").to_str().unwrap())
-        .arg("--output-dir")
-        .arg(dir.path().to_str().unwrap())
-        .arg("--library-artists")
-        .arg(fixture_path("library_artists.txt").to_str().unwrap())
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--library-artists",
+            fixture_path("library_artists.txt").to_str().unwrap(),
+        ])
         .assert()
         .success();
 
-    // Same result as before: 9 filtered releases
     let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
     let count = rdr.records().count();
     assert_eq!(
         count, 9,
-        "Single file mode should produce same results as before"
+        "Single-file mode should produce same results as before"
     );
 
-    // artist_alias.csv should NOT exist in single file mode
     assert!(
         !dir.path().join("artist_alias.csv").exists(),
         "artist_alias.csv should not be created in single file mode"
     );
+}
+
+#[test]
+fn test_deprecated_output_dir_alias_still_works() {
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--output-dir",
+            dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("--output-dir is deprecated"));
+
+    let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+    assert_eq!(rdr.records().count(), 16);
 }

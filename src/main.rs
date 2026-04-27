@@ -3,9 +3,10 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use crossbeam_channel::Sender;
 use log::{info, warn};
+use wxyc_etl::cli::{resolve_database_url, DatabaseArgs, ImportArgs, ResumableBuildArgs};
 
 use discogs_xml_converter::artist_parser::parse_artists;
 use discogs_xml_converter::artist_writer::ArtistCsvOutput;
@@ -20,48 +21,97 @@ use discogs_xml_converter::pg_output::PgOutput;
 use discogs_xml_converter::writer::CsvOutput;
 use rayon::prelude::*;
 
-/// Convert Discogs XML data dumps to CSV files.
+/// Environment variable consulted by `import` when `--database-url` is omitted.
+const DATABASE_URL_ENV: &str = "DATABASE_URL_DISCOGS";
+
+/// Convert Discogs XML data dumps to CSV files or stream them to PostgreSQL.
 ///
-/// Produces CSV files compatible with discogs-cache's import_csv.py.
-/// Optionally filters to releases by artists in a library file.
-///
-/// Input can be a single releases XML file or a directory containing
-/// multiple XML dumps (artists.xml, labels.xml, releases.xml).
-/// When a directory is given, files are auto-detected by root element.
+/// Input can be a single XML file (releases, artists, labels, masters) or a
+/// directory containing multiple XML dumps. When a directory is given, files
+/// are auto-detected by root element.
 #[derive(Parser)]
 #[command(name = "discogs-xml-converter")]
 #[command(version, about)]
 struct Cli {
-    /// Path to Discogs XML file or directory containing XML dumps
+    #[command(subcommand)]
+    cmd: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Convert Discogs XML to CSV files in `--data-dir`.
+    Build(BuildCmd),
+    /// Stream Discogs XML directly into PostgreSQL via COPY.
+    Import(ImportCmd),
+}
+
+#[derive(Args)]
+struct BuildCmd {
+    /// Path to Discogs XML file or directory containing XML dumps.
     input: PathBuf,
 
-    /// Output directory for CSV files
-    #[arg(long)]
-    output_dir: PathBuf,
+    #[command(flatten)]
+    build: ResumableBuildArgs,
 
-    /// Path to library_artists.txt for filtering
+    /// DEPRECATED: use `--data-dir` (alias retained for one release).
+    #[arg(long, hide = true)]
+    output_dir: Option<PathBuf>,
+
+    #[command(flatten)]
+    shared: SharedReleaseArgs,
+}
+
+#[derive(Args)]
+struct ImportCmd {
+    /// Path to Discogs XML file or directory containing XML dumps.
+    input: PathBuf,
+
+    #[command(flatten)]
+    db: DatabaseArgs,
+
+    #[command(flatten)]
+    import: ImportArgs,
+
+    /// DEPRECATED: use `--data-dir` for supplementary CSV outputs (alias retained for one release).
+    #[arg(long, hide = true)]
+    output_dir: Option<PathBuf>,
+
+    #[command(flatten)]
+    shared: SharedReleaseArgs,
+
+    /// Number of releases to buffer before flushing to PostgreSQL.
+    /// Larger values reduce per-COPY overhead but use more memory
+    /// (~100 bytes/release across the per-table buffers).
+    #[arg(long, default_value = "100000")]
+    batch_size: usize,
+}
+
+#[derive(Args)]
+struct SharedReleaseArgs {
+    /// Path to library_artists.txt for filtering.
     #[arg(long)]
     library_artists: Option<PathBuf>,
 
-    /// Maximum number of releases to process
+    /// Maximum number of releases to process.
     #[arg(long)]
     limit: Option<usize>,
 
-    /// Log progress every N releases
+    /// Log progress every N releases.
     #[arg(long, default_value = "100000")]
     progress_interval: usize,
+}
 
-    /// PostgreSQL connection URL for direct-to-database output.
-    /// When provided, releases are streamed directly into PostgreSQL
-    /// via COPY instead of being written to CSV files.
-    #[arg(long)]
-    database_url: Option<String>,
-
-    /// Number of releases to buffer before flushing to PostgreSQL.
-    /// Only used with --database-url. Larger values reduce per-COPY overhead
-    /// but use more memory (~100 bytes/release across 5 table buffers).
-    #[arg(long, default_value = "100000")]
-    batch_size: usize,
+/// Resolve the data directory, accepting the deprecated `--output-dir` alias
+/// with a stderr warning.
+fn resolve_data_dir(output_dir: Option<PathBuf>, data_dir: PathBuf) -> PathBuf {
+    if let Some(legacy) = output_dir {
+        eprintln!(
+            "warning: --output-dir is deprecated; use --data-dir (this alias will be removed in the next release)"
+        );
+        legacy
+    } else {
+        data_dir
+    }
 }
 
 /// Detect the XML type by reading the root element.
@@ -548,144 +598,241 @@ fn matches_filter(filter: &ArtistFilter, release: &discogs_xml_converter::model:
     }
 }
 
-fn main() -> Result<()> {
-    let _logger_guard = wxyc_etl::logger::init(wxyc_etl::logger::LoggerConfig {
-        repo: "discogs-xml-converter",
-        tool: "discogs-xml-converter",
-        sentry_dsn: None,
-        run_id: None,
+/// Resolved release-processing configuration shared between subcommands.
+struct RunConfig {
+    input: PathBuf,
+    data_dir: PathBuf,
+    library_artists: Option<PathBuf>,
+    limit: Option<usize>,
+    progress_interval: usize,
+    sink: ReleaseSink,
+}
+
+enum ReleaseSink {
+    Csv,
+    Pg {
+        database_url: String,
+        batch_size: usize,
+    },
+}
+
+fn build_config(cmd: BuildCmd) -> RunConfig {
+    let data_dir = resolve_data_dir(cmd.output_dir, cmd.build.data_dir);
+    if cmd.build.resume {
+        warn!(
+            "--resume is accepted for CLI parity but discogs-xml-converter is single-pass; \
+             the state file at {} will be ignored",
+            cmd.build.state_file.display()
+        );
+    }
+    RunConfig {
+        input: cmd.input,
+        data_dir,
+        library_artists: cmd.shared.library_artists,
+        limit: cmd.shared.limit,
+        progress_interval: cmd.shared.progress_interval,
+        sink: ReleaseSink::Csv,
+    }
+}
+
+fn import_config(cmd: ImportCmd) -> Result<RunConfig> {
+    let database_url = resolve_database_url(&cmd.db, DATABASE_URL_ENV)
+        .with_context(|| format!("resolve database URL for `import` ({})", DATABASE_URL_ENV))?;
+    let data_dir = resolve_data_dir(cmd.output_dir, cmd.import.data_dir);
+    if cmd.import.fresh {
+        info!("--fresh: truncating release tables before import");
+        truncate_release_tables(&database_url)?;
+    }
+    Ok(RunConfig {
+        input: cmd.input,
+        data_dir,
+        library_artists: cmd.shared.library_artists,
+        limit: cmd.shared.limit,
+        progress_interval: cmd.shared.progress_interval,
+        sink: ReleaseSink::Pg {
+            database_url,
+            batch_size: cmd.batch_size,
+        },
+    })
+}
+
+/// Truncate release-scoped tables before a `--fresh` import.
+///
+/// Children CASCADE off `release`, so a single TRUNCATE clears everything
+/// downstream and resets identity sequences.
+fn truncate_release_tables(database_url: &str) -> Result<()> {
+    let mut client = postgres::Client::connect(database_url, postgres::NoTls)
+        .with_context(|| format!("Failed to connect to PostgreSQL at {}", database_url))?;
+    client
+        .batch_execute("TRUNCATE TABLE release RESTART IDENTITY CASCADE")
+        .context("TRUNCATE release CASCADE failed")?;
+    Ok(())
+}
+
+fn run(cfg: RunConfig) -> Result<()> {
+    if cfg.input.is_dir() {
+        run_directory(cfg)
+    } else {
+        run_single_file(cfg)
+    }
+}
+
+fn run_directory(cfg: RunConfig) -> Result<()> {
+    let xml_files = scan_directory(&cfg.input)?;
+
+    // Start scanning releases early so the 57GB file read overlaps with
+    // artist/label processing. The bounded channel provides backpressure.
+    let scanner = xml_files.releases.as_ref().map(|releases_path| {
+        info!("Starting release scanner: {}", releases_path.display());
+        start_scanner(
+            releases_path.to_path_buf(),
+            cfg.limit,
+            cfg.progress_interval,
+        )
     });
 
-    let cli = Cli::parse();
-
-    if cli.input.is_dir() {
-        // Directory mode: scan for XML files and process in order
-        let xml_files = scan_directory(&cli.input)?;
-
-        // Start scanning releases early so the 57GB file read overlaps with
-        // artist/label processing. The bounded channel provides backpressure.
-        let scanner = xml_files.releases.as_ref().map(|releases_path| {
-            info!("Starting release scanner: {}", releases_path.display());
-            start_scanner(
-                releases_path.to_path_buf(),
-                cli.limit,
-                cli.progress_interval,
-            )
-        });
-
-        // Process artists and labels in parallel (independent files)
-        match (&xml_files.artists, &xml_files.labels) {
-            (Some(artists_path), Some(labels_path)) => {
-                std::thread::scope(|s| {
-                    let h1 = s.spawn(|| process_artists(artists_path, &cli.output_dir));
-                    let h2 = s.spawn(|| process_labels(labels_path, &cli.output_dir));
-                    h1.join().unwrap()?;
-                    h2.join().unwrap()?;
-                    Ok::<(), anyhow::Error>(())
-                })?;
-            }
-            (Some(artists_path), None) => {
-                process_artists(artists_path, &cli.output_dir)?;
-            }
-            (None, Some(labels_path)) => {
-                process_labels(labels_path, &cli.output_dir)?;
-            }
-            (None, None) => {}
+    match (&xml_files.artists, &xml_files.labels) {
+        (Some(artists_path), Some(labels_path)) => {
+            std::thread::scope(|s| {
+                let h1 = s.spawn(|| process_artists(artists_path, &cfg.data_dir));
+                let h2 = s.spawn(|| process_labels(labels_path, &cfg.data_dir));
+                h1.join().unwrap()?;
+                h2.join().unwrap()?;
+                Ok::<(), anyhow::Error>(())
+            })?;
         }
-
-        // Process masters (independent of artists/labels/releases)
-        if let Some(masters_path) = &xml_files.masters {
-            process_masters(masters_path, &cli.output_dir)?;
+        (Some(artists_path), None) => {
+            process_artists(artists_path, &cfg.data_dir)?;
         }
+        (None, Some(labels_path)) => {
+            process_labels(labels_path, &cfg.data_dir)?;
+        }
+        (None, None) => {}
+    }
 
-        // Load artist filter with optional alias enhancement
-        let filter = match &cli.library_artists {
-            Some(path) => {
-                let mut f = ArtistFilter::from_file(path)?;
-                info!("Loaded {} library artists from {}", f.len(), path.display());
+    if let Some(masters_path) = &xml_files.masters {
+        process_masters(masters_path, &cfg.data_dir)?;
+    }
 
-                // If artists.xml was processed, load aliases for enhanced filtering
-                let alias_csv = cli.output_dir.join("artist_alias.csv");
-                if alias_csv.exists() {
-                    let alias_count = f.load_aliases(&alias_csv)?;
-                    info!(
-                        "Loaded {} artist aliases for enhanced filtering",
-                        alias_count
-                    );
-                }
-                Some(f)
+    let filter = match &cfg.library_artists {
+        Some(path) => {
+            let mut f = ArtistFilter::from_file(path)?;
+            info!("Loaded {} library artists from {}", f.len(), path.display());
+
+            let alias_csv = cfg.data_dir.join("artist_alias.csv");
+            if alias_csv.exists() {
+                let alias_count = f.load_aliases(&alias_csv)?;
+                info!(
+                    "Loaded {} artist aliases for enhanced filtering",
+                    alias_count
+                );
             }
-            None => None,
-        };
+            Some(f)
+        }
+        None => None,
+    };
 
-        // Consume scanner batches (scanner has been reading ahead this whole time)
-        if let Some((rx, handle)) = scanner {
-            if let Some(ref db_url) = cli.database_url {
-                let mut output = PgOutput::new(db_url, cli.batch_size)?;
-                consume_releases(rx, handle, &mut output, &filter)?;
-                output.finish()?;
-            } else {
-                let mut output = CsvOutput::new(&cli.output_dir)?;
+    if let Some((rx, handle)) = scanner {
+        match &cfg.sink {
+            ReleaseSink::Pg {
+                database_url,
+                batch_size,
+            } => {
+                let mut output = PgOutput::new(database_url, *batch_size)?;
                 consume_releases(rx, handle, &mut output, &filter)?;
                 output.finish()?;
             }
-        } else {
-            warn!("No releases XML found in directory {}", cli.input.display());
+            ReleaseSink::Csv => {
+                let mut output = CsvOutput::new(&cfg.data_dir)?;
+                consume_releases(rx, handle, &mut output, &filter)?;
+                output.finish()?;
+            }
         }
-
-        drop(filter);
     } else {
-        // Single file mode: detect XML type, dispatch accordingly
-        let xml_type = detect_xml_type(&cli.input)?;
-        match xml_type.as_str() {
-            "masters" => {
-                process_masters(&cli.input, &cli.output_dir)?;
-                return Ok(());
-            }
-            "artists" => {
-                process_artists(&cli.input, &cli.output_dir)?;
-                return Ok(());
-            }
-            "labels" => {
-                process_labels(&cli.input, &cli.output_dir)?;
-                return Ok(());
-            }
-            _ => {} // Default: treat as releases (backward compatible)
+        warn!("No releases XML found in directory {}", cfg.input.display());
+    }
+
+    Ok(())
+}
+
+fn run_single_file(cfg: RunConfig) -> Result<()> {
+    let xml_type = detect_xml_type(&cfg.input)?;
+    match xml_type.as_str() {
+        "masters" => {
+            process_masters(&cfg.input, &cfg.data_dir)?;
+            return Ok(());
         }
+        "artists" => {
+            process_artists(&cfg.input, &cfg.data_dir)?;
+            return Ok(());
+        }
+        "labels" => {
+            process_labels(&cfg.input, &cfg.data_dir)?;
+            return Ok(());
+        }
+        _ => {} // Default: treat as releases
+    }
 
-        let filter = match &cli.library_artists {
-            Some(path) => {
-                let f = ArtistFilter::from_file(path)?;
-                info!("Loaded {} library artists from {}", f.len(), path.display());
-                Some(f)
-            }
-            None => None,
-        };
+    let filter = match &cfg.library_artists {
+        Some(path) => {
+            let f = ArtistFilter::from_file(path)?;
+            info!("Loaded {} library artists from {}", f.len(), path.display());
+            Some(f)
+        }
+        None => None,
+    };
 
-        if let Some(ref db_url) = cli.database_url {
-            let mut output = PgOutput::new(db_url, cli.batch_size)?;
+    match &cfg.sink {
+        ReleaseSink::Pg {
+            database_url,
+            batch_size,
+        } => {
+            let mut output = PgOutput::new(database_url, *batch_size)?;
             process_releases(
-                &cli.input,
+                &cfg.input,
                 &mut output,
                 &filter,
-                cli.limit,
-                cli.progress_interval,
+                cfg.limit,
+                cfg.progress_interval,
             )?;
             output.finish()?;
-        } else {
-            let mut output = CsvOutput::new(&cli.output_dir)?;
+        }
+        ReleaseSink::Csv => {
+            let mut output = CsvOutput::new(&cfg.data_dir)?;
             process_releases(
-                &cli.input,
+                &cfg.input,
                 &mut output,
                 &filter,
-                cli.limit,
-                cli.progress_interval,
+                cfg.limit,
+                cfg.progress_interval,
             )?;
             output.finish()?;
         }
     }
 
     Ok(())
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let tool = match &cli.cmd {
+        Command::Build(_) => "discogs-xml-converter build",
+        Command::Import(_) => "discogs-xml-converter import",
+    };
+    let _logger_guard = wxyc_etl::logger::init(wxyc_etl::logger::LoggerConfig {
+        repo: "discogs-xml-converter",
+        tool,
+        sentry_dsn: None,
+        run_id: None,
+    });
+
+    // TODO: provision SENTRY_DSN in the runtime env (CI / deploy config) — see issue #33.
+
+    let cfg = match cli.cmd {
+        Command::Build(cmd) => build_config(cmd),
+        Command::Import(cmd) => import_config(cmd)?,
+    };
+    run(cfg)
 }
 
 #[cfg(test)]
@@ -952,14 +1099,14 @@ mod tests {
 
         // Sequential
         let seq_dir = tempfile::tempdir().unwrap();
-        process_artists(&artists_path, &seq_dir.path().to_path_buf()).unwrap();
-        process_labels(&labels_path, &seq_dir.path().to_path_buf()).unwrap();
+        process_artists(&artists_path, seq_dir.path()).unwrap();
+        process_labels(&labels_path, seq_dir.path()).unwrap();
 
         // Parallel
         let par_dir = tempfile::tempdir().unwrap();
         std::thread::scope(|s| {
-            let h1 = s.spawn(|| process_artists(&artists_path, &par_dir.path().to_path_buf()));
-            let h2 = s.spawn(|| process_labels(&labels_path, &par_dir.path().to_path_buf()));
+            let h1 = s.spawn(|| process_artists(&artists_path, par_dir.path()));
+            let h2 = s.spawn(|| process_labels(&labels_path, par_dir.path()));
             h1.join().unwrap().unwrap();
             h2.join().unwrap().unwrap();
         });

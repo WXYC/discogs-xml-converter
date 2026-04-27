@@ -14,7 +14,7 @@ Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compa
 - `writer.rs` -- `CsvOutput` implementation of `ReleaseOutput` using `wxyc_etl::csv_writer::MultiCsvWriter` for 9 CSV files matching `import_csv.py` contract
 - `pg_output.rs` -- `PgOutput` implementation of `ReleaseOutput` for direct-to-PostgreSQL streaming via COPY; uses `wxyc_etl::pg::BatchCopier` for FK-ordered flush and `wxyc_etl::pg::copy` for COPY TEXT escaping; domain-specific post-import logic (artwork URLs, track counts, cache_metadata) remains local
 - `filter.rs` -- `ArtistFilter` HashSet-based artist name filtering with alias support; normalization delegates to `wxyc_etl::text::normalize_artist_name()`
-- `main.rs` -- CLI using clap derive; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer); output dispatch between CSV and PG modes
+- `main.rs` -- CLI using clap derive with `build` / `import` subcommands; flattens `wxyc_etl::cli::{DatabaseArgs, ResumableBuildArgs, ImportArgs}` for the cache-builder convention; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer); output dispatch between CSV and PG sinks
 
 ### Parallel Processing Pipeline
 
@@ -24,7 +24,7 @@ Release processing uses a three-stage pipeline for multi-core parallelism:
 2. **Rayon worker pool** -- receives batches, parses XML from bytes + normalizes/filters artists in parallel using `par_iter()` (order-preserving)
 3. **Writer (main thread)** -- writes matched releases via `ReleaseOutput` trait, preserving XML document order
 
-The writer stage dispatches to either `CsvOutput` (CSV files) or `PgOutput` (PostgreSQL COPY) based on the `--database-url` flag. In directory mode, the scanner starts before artist/label processing completes (`start_scanner` + `consume_releases`), overlapping the large file read with smaller-file work. Artist and label XML files are processed in parallel via `std::thread::scope` when both are present.
+The writer stage dispatches to either `CsvOutput` (CSV files) or `PgOutput` (PostgreSQL COPY) based on the chosen subcommand: `build` writes CSVs to `--data-dir`, `import` streams to PostgreSQL via `--database-url` (or the `DATABASE_URL_DISCOGS` env fallback resolved through `wxyc_etl::cli::resolve_database_url`). In directory mode, the scanner starts before artist/label processing completes (`start_scanner` + `consume_releases`), overlapping the large file read with smaller-file work. Artist and label XML files are processed in parallel via `std::thread::scope` when both are present.
 
 ### Output Architecture
 
@@ -70,6 +70,7 @@ cargo build --release   # produces target/release/discogs-xml-converter
 - `cargo clippy` for linting
 - Targets macOS ARM64 and Linux x86_64
 
+<<<<<<< HEAD
 ## Observability
 
 `main.rs` initializes `wxyc_etl::logger` at startup. Logs emit as one JSON object per line on stdout; panics and `tracing::error!` events forward to Sentry when `SENTRY_DSN` is set in the environment. Without a DSN, JSON logging still works and Sentry stays inactive.
@@ -81,6 +82,16 @@ Sentry tags applied to every event:
 - `step` -- set per-span via `tracing::info_span!("...", step = "...")`
 
 TODO: provision `SENTRY_DSN` in the environments that invoke this tool (discogs-etl GitHub Actions workflow + any manual cache rebuild scripts on EC2). DSN provisioning is tracked separately from this wireup.
+=======
+## CLI shape (cache-builder convention)
+
+The tool exposes two subcommands that compose shared `wxyc_etl::cli` argument groups:
+
+- `discogs-xml-converter build <input> [--data-dir DIR] [--state-file FILE] [--resume] [--library-artists FILE] [--limit N]` — convert XML to CSV files in `--data-dir` (defaults to `./data`). `--resume` is accepted for parity with other cache builders but is currently a no-op (this tool is single-pass).
+- `discogs-xml-converter import <input> --database-url URL [--data-dir DIR] [--fresh] [--batch-size N]` — stream releases directly into PostgreSQL via COPY. `--database-url` falls back to the `DATABASE_URL_DISCOGS` environment variable. `--fresh` runs `TRUNCATE release ... CASCADE` before importing.
+
+`--output-dir` is accepted as a deprecation alias for `--data-dir` (with a stderr warning) for one release. The deprecation alias is enforced in tests; remove it in the next breaking-change cycle once all callers (`discogs-etl`'s `run_pipeline.py`) have migrated.
+>>>>>>> 695744b (Migrate to standardized cache-builder CLI)
 
 ## Key Design Decisions
 
