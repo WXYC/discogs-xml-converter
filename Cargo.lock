@@ -3210,7 +3210,8 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 [[package]]
 name = "wxyc-etl"
 version = "0.1.0"
-source = "git+https://github.com/WXYC/wxyc-etl.git?branch=main#c958a51563cb69c645a5cda7d127e1a964d1c702"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e0a1f3339c2fb633a75b09d65fd022c4b1328f2965750097fa60c626930140"
 dependencies = [
  "anyhow",
  "clap",
