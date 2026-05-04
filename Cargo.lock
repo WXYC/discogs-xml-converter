@@ -458,6 +458,8 @@ dependencies = [
  "pretty_assertions",
  "quick-xml",
  "rayon",
+ "serde",
+ "serde_json",
  "tempfile",
  "wxyc-etl",
 ]
