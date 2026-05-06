@@ -1,6 +1,6 @@
 //! Artist name normalization and filtering.
 //!
-//! Normalizes artist names by delegating to `wxyc_etl::text::normalize_artist_name()`,
+//! Normalizes artist names by delegating to `wxyc_etl::text::to_match_form()`,
 //! which applies NFKD decomposition, strips combining characters (diacritics),
 //! lowercases, and trims whitespace.
 
@@ -10,10 +10,10 @@ use std::path::Path;
 
 /// Normalize an artist name for matching.
 ///
-/// Delegates to [`wxyc_etl::text::normalize_artist_name()`], the shared
+/// Delegates to [`wxyc_etl::text::to_match_form()`], the shared
 /// implementation that all WXYC ETL repos use for normalization parity.
 pub fn normalize_artist(name: &str) -> String {
-    wxyc_etl::text::normalize_artist_name(name)
+    wxyc_etl::text::to_match_form(name)
 }
 
 /// Artist filter backed by a normalized HashSet, with optional alias support.
@@ -255,11 +255,11 @@ mod tests {
     }
 
     /// Verify that the local normalize_artist() produces identical output to
-    /// wxyc_etl::text::normalize_artist_name() for a comprehensive set of edge cases.
+    /// wxyc_etl::text::to_match_form() for a comprehensive set of edge cases.
     /// This confirms the migration to the shared crate is safe.
     mod normalization_parity_tests {
         use super::*;
-        use wxyc_etl::text::normalize_artist_name;
+        use wxyc_etl::text::to_match_form;
 
         #[test]
         fn parity_diacritics() {
@@ -274,7 +274,7 @@ mod tests {
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
-                    normalize_artist_name(name),
+                    to_match_form(name),
                     "Mismatch for: {name}"
                 );
             }
@@ -286,7 +286,7 @@ mod tests {
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
-                    normalize_artist_name(name),
+                    to_match_form(name),
                     "Mismatch for: {name}"
                 );
             }
@@ -298,7 +298,7 @@ mod tests {
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
-                    normalize_artist_name(name),
+                    to_match_form(name),
                     "Mismatch for: {name}"
                 );
             }
@@ -310,7 +310,7 @@ mod tests {
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
-                    normalize_artist_name(name),
+                    to_match_form(name),
                     "Mismatch for: {name}"
                 );
             }
@@ -318,7 +318,7 @@ mod tests {
 
         #[test]
         fn parity_empty() {
-            assert_eq!(normalize_artist(""), normalize_artist_name(""));
+            assert_eq!(normalize_artist(""), to_match_form(""));
         }
 
         #[test]
@@ -338,7 +338,7 @@ mod tests {
             for name in cases {
                 assert_eq!(
                     normalize_artist(name),
-                    normalize_artist_name(name),
+                    to_match_form(name),
                     "Mismatch for: {name}"
                 );
             }
