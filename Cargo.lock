@@ -417,6 +417,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "deunicode"
+version = "1.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3211,14 +3217,15 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "wxyc-etl"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e0a1f3339c2fb633a75b09d65fd022c4b1328f2965750097fa60c626930140"
+checksum = "e1f6e6cda194702938a1b28276dc9df4d780c229ce491fb8c4e1fbdd3a4591f5"
 dependencies = [
  "anyhow",
  "clap",
  "crossbeam-channel",
  "csv",
+ "deunicode",
  "env_logger",
  "itoa",
  "log",

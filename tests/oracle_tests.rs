@@ -3,7 +3,7 @@
 //! These tests parse releases_fixture.xml and diff each CSV against
 //! the expected output copied from discogs-etl/tests/fixtures/csv/.
 //!
-//! Text normalization is provided by `wxyc_etl::text::normalize_artist_name()`,
+//! Text normalization is provided by `wxyc_etl::text::to_match_form()`,
 //! the shared implementation used by all WXYC ETL repos. The parity tests in
 //! `src/filter.rs` verify normalization equivalence.
 
