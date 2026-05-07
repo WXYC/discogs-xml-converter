@@ -464,6 +464,7 @@ dependencies = [
  "pretty_assertions",
  "quick-xml",
  "rayon",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

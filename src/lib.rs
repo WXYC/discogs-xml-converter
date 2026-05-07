@@ -5,6 +5,7 @@ pub mod filter;
 pub mod label_model;
 pub mod label_parser;
 pub mod label_writer;
+pub mod library_pairs;
 pub mod master_model;
 pub mod master_parser;
 pub mod master_writer;

@@ -312,6 +312,132 @@ fn test_limit() {
     assert_eq!(count, 5, "Expected 5 releases with --limit 5");
 }
 
+/// Build a small `library.db` with the supplied `(artist, title)` rows for
+/// pair-filter integration tests. Returns the path to the file rooted in
+/// `dir`. Uses the canonical schema produced by `wxyc-export-to-sqlite`.
+fn make_test_library_db(dir: &std::path::Path, rows: &[(&str, &str)]) -> PathBuf {
+    let path = dir.join("library.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE library (\
+            id INTEGER PRIMARY KEY AUTOINCREMENT,\
+            artist TEXT NOT NULL,\
+            title TEXT NOT NULL,\
+            format TEXT\
+         );",
+    )
+    .unwrap();
+    {
+        let mut stmt = conn
+            .prepare("INSERT INTO library (artist, title) VALUES (?1, ?2)")
+            .unwrap();
+        for (artist, title) in rows {
+            stmt.execute(rusqlite::params![artist, title]).unwrap();
+        }
+    }
+    drop(conn);
+    path
+}
+
+#[test]
+fn test_with_library_db_pair_filter() {
+    // Exercises the new `--library-db` mode end-to-end through the CLI.
+    // The library.db keeps only:
+    //   - (Autechre, Confield)        -> matches releases 1001, 1002, 1003
+    //   - (Nilüfer Yanya, PAINLESS)   -> matches release 6001 (diacritic case)
+    //   - (Wrong Artist, Amber)       -> excludes release 3001 (title in DB
+    //                                    but artist on the release doesn't
+    //                                    match the library set for that title)
+    //   - (Autechre, Tri Repetae) is intentionally OMITTED so release 4001
+    //     is excluded even though its artist appears in the library.
+    let dir = tempfile::tempdir().unwrap();
+    let lib = tempfile::tempdir().unwrap();
+    let library_db = make_test_library_db(
+        lib.path(),
+        &[
+            ("Autechre", "Confield"),
+            ("Nilüfer Yanya", "PAINLESS"),
+            ("Wrong Artist", "Amber"),
+        ],
+    );
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--library-db",
+            library_db.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+    let id_idx = rdr
+        .headers()
+        .unwrap()
+        .iter()
+        .position(|h| h == "id")
+        .unwrap();
+    let mut ids: Vec<u64> = rdr
+        .records()
+        .map(|r| r.unwrap()[id_idx].parse().unwrap())
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec![1001, 1002, 1003, 6001],
+        "pair-filter should keep exactly the 4 releases whose (artist, title) appears in library.db"
+    );
+}
+
+#[test]
+fn test_library_db_and_library_artists_are_mutually_exclusive() {
+    // clap should reject a combo of both flags before any work begins.
+    let dir = tempfile::tempdir().unwrap();
+    let lib = tempfile::tempdir().unwrap();
+    let library_db = make_test_library_db(lib.path(), &[("Autechre", "Confield")]);
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--library-artists",
+            fixture_path("library_artists.txt").to_str().unwrap(),
+            "--library-db",
+            library_db.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("library-artists").or(predicate::str::contains("library-db")),
+        );
+}
+
+#[test]
+fn test_library_db_missing_file_fails_clearly() {
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--library-db",
+            "/nonexistent/library.db",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("library.db"));
+}
+
 #[test]
 fn test_xml_type_flag_processes_as_releases() {
     // --xml-type=releases lets the caller bypass the per-file root-element
