@@ -313,6 +313,49 @@ fn test_limit() {
 }
 
 #[test]
+fn test_xml_type_flag_processes_as_releases() {
+    // --xml-type=releases lets the caller bypass the per-file root-element
+    // detection. This matters when the input is a stream-only source (named
+    // pipe / process substitution): detect_xml_type opens the file, reads
+    // the root element, and closes. On a FIFO, that close kills any upstream
+    // writer (e.g. a backgrounded `curl -o FIFO`) with SIGPIPE before the
+    // real scan ever opens the file. With --xml-type, the detection open is
+    // skipped and the FIFO is opened exactly once.
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--xml-type",
+            "releases",
+        ])
+        .assert()
+        .success();
+
+    let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+    let count = rdr.records().count();
+    assert_eq!(count, 16, "release.csv should have all 16 fixture releases");
+}
+
+#[test]
+fn test_xml_type_flag_rejects_invalid_value() {
+    Command::cargo_bin("discogs-xml-converter")
+        .unwrap()
+        .args([
+            "build",
+            fixture_path("releases_fixture.xml").to_str().unwrap(),
+            "--xml-type",
+            "nonsense",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_gzipped_input() {
     let dir = tempfile::tempdir().unwrap();
 

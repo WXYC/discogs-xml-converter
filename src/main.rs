@@ -99,6 +99,15 @@ struct SharedReleaseArgs {
     /// Log progress every N releases.
     #[arg(long, default_value = "100000")]
     progress_interval: usize,
+
+    /// Skip per-file root-element detection and treat the input as the given
+    /// dump type. Required when the input is a stream-only source (named pipe,
+    /// process substitution): the auto-detector opens the file, reads the
+    /// root element, and closes — closing a FIFO read end terminates the
+    /// upstream writer before the real scan opens it. With this flag, the
+    /// input is opened exactly once.
+    #[arg(long, value_parser = ["releases", "artists", "labels", "masters"])]
+    xml_type: Option<String>,
 }
 
 /// Resolve the data directory, accepting the deprecated `--output-dir` alias
@@ -605,6 +614,9 @@ struct RunConfig {
     library_artists: Option<PathBuf>,
     limit: Option<usize>,
     progress_interval: usize,
+    /// When set, skips per-file root-element auto-detection and treats the
+    /// input as the given dump type. See SharedReleaseArgs::xml_type.
+    xml_type: Option<String>,
     sink: ReleaseSink,
 }
 
@@ -631,6 +643,7 @@ fn build_config(cmd: BuildCmd) -> RunConfig {
         library_artists: cmd.shared.library_artists,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
+        xml_type: cmd.shared.xml_type,
         sink: ReleaseSink::Csv,
     }
 }
@@ -649,6 +662,7 @@ fn import_config(cmd: ImportCmd) -> Result<RunConfig> {
         library_artists: cmd.shared.library_artists,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
+        xml_type: cmd.shared.xml_type,
         sink: ReleaseSink::Pg {
             database_url,
             batch_size: cmd.batch_size,
@@ -756,7 +770,13 @@ fn run_directory(cfg: RunConfig) -> Result<()> {
 }
 
 fn run_single_file(cfg: RunConfig) -> Result<()> {
-    let xml_type = detect_xml_type(&cfg.input)?;
+    // Caller-supplied --xml-type bypasses auto-detection. detect_xml_type
+    // opens the input, reads the root element, and closes — that close-on-FIFO
+    // breaks the upstream writer, so streaming inputs MUST set xml_type.
+    let xml_type = match &cfg.xml_type {
+        Some(t) => t.clone(),
+        None => detect_xml_type(&cfg.input)?,
+    };
     match xml_type.as_str() {
         "masters" => {
             process_masters(&cfg.input, &cfg.data_dir)?;
