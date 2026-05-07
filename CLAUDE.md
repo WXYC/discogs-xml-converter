@@ -13,7 +13,7 @@ Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compa
 - `output.rs` -- `ReleaseOutput` trait abstracting over output targets (CSV or PostgreSQL)
 - `writer.rs` -- `CsvOutput` implementation of `ReleaseOutput` using `wxyc_etl::csv_writer::MultiCsvWriter` for 9 CSV files matching `import_csv.py` contract
 - `pg_output.rs` -- `PgOutput` implementation of `ReleaseOutput` for direct-to-PostgreSQL streaming via COPY; uses `wxyc_etl::pg::BatchCopier` for FK-ordered flush and `wxyc_etl::pg::copy` for COPY TEXT escaping; domain-specific post-import logic (artwork URLs, track counts, cache_metadata) remains local
-- `filter.rs` -- `ArtistFilter` HashSet-based artist name filtering with alias support; normalization delegates to `wxyc_etl::text::normalize_artist_name()`
+- `filter.rs` -- `ArtistFilter` HashSet-based artist name filtering with alias support; normalization delegates to `wxyc_etl::text::to_match_form()`
 - `library_pairs.rs` -- `LibraryPairs` inverted index `{normalized_title -> set<normalized_artist>}` loaded from a SQLite `library.db`. Powers the `--library-db` pair-wise filter that narrows the converter's ~4M-release artist-only output to ~50K so the import fits Railway-sized destination DBs. Mirrors `discogs-etl/scripts/filter_csv.py::load_library_pairs`
 - `main.rs` -- CLI using clap derive with `build` / `import` subcommands; flattens `wxyc_etl::cli::{DatabaseArgs, ResumableBuildArgs, ImportArgs}` for the cache-builder convention; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer); output dispatch between CSV and PG sinks
 
@@ -101,7 +101,7 @@ The tool exposes two subcommands that compose shared `wxyc_etl::cli` argument gr
 
 ## Key Design Decisions
 
-- Artist normalization delegates to `wxyc_etl::text::normalize_artist_name()`, the shared implementation that all WXYC ETL repos use for normalization parity. Parity tests in `filter.rs` verify equivalence.
+- Artist normalization delegates to `wxyc_etl::text::to_match_form()`, the shared implementation that all WXYC ETL repos use for normalization parity. Parity tests in `filter.rs` verify equivalence.
 - Releases with no `<artists>` are skipped (not written to any CSV)
 - Format string: single format uses name; qty > 1 prefixes with `{qty}x`; multiple formats are comma-separated
 - Track sequence is 1-indexed position in the `<tracklist>`
