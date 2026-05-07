@@ -13,6 +13,7 @@ use discogs_xml_converter::artist_writer::ArtistCsvOutput;
 use discogs_xml_converter::filter::ArtistFilter;
 use discogs_xml_converter::label_parser::parse_labels;
 use discogs_xml_converter::label_writer::LabelCsvOutput;
+use discogs_xml_converter::library_pairs::LibraryPairs;
 use discogs_xml_converter::master_parser::parse_masters;
 use discogs_xml_converter::master_writer::MasterCsvOutput;
 use discogs_xml_converter::output::ReleaseOutput;
@@ -88,9 +89,21 @@ struct ImportCmd {
 
 #[derive(Args)]
 struct SharedReleaseArgs {
-    /// Path to library_artists.txt for filtering.
-    #[arg(long)]
+    /// Path to library_artists.txt for artist-only filtering.
+    /// Mutually exclusive with `--library-db`.
+    #[arg(long, conflicts_with = "library_db")]
     library_artists: Option<PathBuf>,
+
+    /// Path to a SQLite `library.db` for pair-wise `(artist, title)` filtering.
+    /// Releases whose title is in the library AND whose credited artist
+    /// matches one of the library's artists for that title are kept.
+    /// Mutually exclusive with `--library-artists`.
+    ///
+    /// The artist-only filter retains ~4M releases on a full Discogs dump,
+    /// which overflows small destination volumes during `COPY release_artist`.
+    /// The pair filter narrows that to ~50K, fitting Railway-sized targets.
+    #[arg(long)]
+    library_db: Option<PathBuf>,
 
     /// Maximum number of releases to process.
     #[arg(long)]
@@ -306,7 +319,7 @@ fn consume_releases(
     rx: crossbeam_channel::Receiver<ReleaseBatch>,
     scanner_handle: std::thread::JoinHandle<Result<usize>>,
     output: &mut impl ReleaseOutput,
-    filter: &Option<ArtistFilter>,
+    filter: &Option<ReleaseFilter>,
 ) -> Result<()> {
     let mut written = 0usize;
     let mut filtered = 0usize;
@@ -397,7 +410,7 @@ fn consume_releases(
 fn process_releases(
     path: &Path,
     output: &mut impl ReleaseOutput,
-    filter: &Option<ArtistFilter>,
+    filter: &Option<ReleaseFilter>,
     limit: Option<usize>,
     progress_interval: usize,
 ) -> Result<()> {
@@ -583,27 +596,93 @@ fn scan_reader<R: Read>(
     Ok(count)
 }
 
-/// Check if a release matches the artist filter.
+/// Combined release filter. Either the artist-only HashSet or the pair-wise
+/// `(artist, title)` index from a `library.db`. Set at startup based on which
+/// of `--library-artists` / `--library-db` was passed.
+enum ReleaseFilter {
+    Artists(ArtistFilter),
+    Pairs(LibraryPairs),
+}
+
+/// Build the configured release filter from the resolved CLI args.
 ///
-/// Uses alias-enhanced matching (by artist_id) when aliases are loaded,
-/// otherwise falls back to canonical name matching.
-fn matches_filter(filter: &ArtistFilter, release: &discogs_xml_converter::model::Release) -> bool {
-    if filter.has_aliases() {
-        let artist_ids: Vec<(u64, &str)> = release
-            .artists
-            .iter()
-            .chain(release.extra_artists.iter())
-            .map(|a| (a.artist_id, a.name.as_str()))
-            .collect();
-        filter.matches_any_with_ids(&artist_ids)
-    } else {
-        let names: Vec<&str> = release
-            .artists
-            .iter()
-            .chain(release.extra_artists.iter())
-            .map(|a| a.name.as_str())
-            .collect();
-        filter.matches_any(names)
+/// `data_dir_for_aliases` should be `Some(data_dir)` in directory mode, where
+/// the converter's own `artist_alias.csv` output is available, and `None` in
+/// single-file streaming mode (no companion CSVs exist yet). Aliases only
+/// apply to artist-only filtering; pair-mode ignores them.
+///
+/// `--library-artists` and `--library-db` are mutually exclusive at the clap
+/// layer; this returns `None` when neither is set.
+fn build_filter(
+    cfg: &RunConfig,
+    data_dir_for_aliases: Option<&Path>,
+) -> Result<Option<ReleaseFilter>> {
+    if let Some(path) = &cfg.library_db {
+        let pairs = LibraryPairs::from_db(path)?;
+        info!(
+            "Loaded {} library titles spanning {} (artist, title) pairs from {}",
+            pairs.len(),
+            pairs.pair_count(),
+            path.display()
+        );
+        return Ok(Some(ReleaseFilter::Pairs(pairs)));
+    }
+
+    if let Some(path) = &cfg.library_artists {
+        let mut f = ArtistFilter::from_file(path)?;
+        info!("Loaded {} library artists from {}", f.len(), path.display());
+
+        if let Some(data_dir) = data_dir_for_aliases {
+            let alias_csv = data_dir.join("artist_alias.csv");
+            if alias_csv.exists() {
+                let alias_count = f.load_aliases(&alias_csv)?;
+                info!(
+                    "Loaded {} artist aliases for enhanced filtering",
+                    alias_count
+                );
+            }
+        }
+        return Ok(Some(ReleaseFilter::Artists(f)));
+    }
+
+    Ok(None)
+}
+
+/// Check if a release matches the configured filter.
+///
+/// In artist mode, uses alias-enhanced matching (by artist_id) when aliases
+/// are loaded, otherwise falls back to canonical name matching. In pair mode,
+/// looks up the release title in the library's inverted index and checks
+/// whether any credited artist appears in that title's set.
+fn matches_filter(filter: &ReleaseFilter, release: &discogs_xml_converter::model::Release) -> bool {
+    match filter {
+        ReleaseFilter::Artists(f) => {
+            if f.has_aliases() {
+                let artist_ids: Vec<(u64, &str)> = release
+                    .artists
+                    .iter()
+                    .chain(release.extra_artists.iter())
+                    .map(|a| (a.artist_id, a.name.as_str()))
+                    .collect();
+                f.matches_any_with_ids(&artist_ids)
+            } else {
+                let names: Vec<&str> = release
+                    .artists
+                    .iter()
+                    .chain(release.extra_artists.iter())
+                    .map(|a| a.name.as_str())
+                    .collect();
+                f.matches_any(names)
+            }
+        }
+        ReleaseFilter::Pairs(p) => {
+            let names = release
+                .artists
+                .iter()
+                .chain(release.extra_artists.iter())
+                .map(|a| a.name.as_str());
+            p.matches(&release.title, names)
+        }
     }
 }
 
@@ -612,6 +691,7 @@ struct RunConfig {
     input: PathBuf,
     data_dir: PathBuf,
     library_artists: Option<PathBuf>,
+    library_db: Option<PathBuf>,
     limit: Option<usize>,
     progress_interval: usize,
     /// When set, skips per-file root-element auto-detection and treats the
@@ -641,6 +721,7 @@ fn build_config(cmd: BuildCmd) -> RunConfig {
         input: cmd.input,
         data_dir,
         library_artists: cmd.shared.library_artists,
+        library_db: cmd.shared.library_db,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
         xml_type: cmd.shared.xml_type,
@@ -660,6 +741,7 @@ fn import_config(cmd: ImportCmd) -> Result<RunConfig> {
         input: cmd.input,
         data_dir,
         library_artists: cmd.shared.library_artists,
+        library_db: cmd.shared.library_db,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
         xml_type: cmd.shared.xml_type,
@@ -728,23 +810,7 @@ fn run_directory(cfg: RunConfig) -> Result<()> {
         process_masters(masters_path, &cfg.data_dir)?;
     }
 
-    let filter = match &cfg.library_artists {
-        Some(path) => {
-            let mut f = ArtistFilter::from_file(path)?;
-            info!("Loaded {} library artists from {}", f.len(), path.display());
-
-            let alias_csv = cfg.data_dir.join("artist_alias.csv");
-            if alias_csv.exists() {
-                let alias_count = f.load_aliases(&alias_csv)?;
-                info!(
-                    "Loaded {} artist aliases for enhanced filtering",
-                    alias_count
-                );
-            }
-            Some(f)
-        }
-        None => None,
-    };
+    let filter = build_filter(&cfg, Some(&cfg.data_dir))?;
 
     if let Some((rx, handle)) = scanner {
         match &cfg.sink {
@@ -793,14 +859,9 @@ fn run_single_file(cfg: RunConfig) -> Result<()> {
         _ => {} // Default: treat as releases
     }
 
-    let filter = match &cfg.library_artists {
-        Some(path) => {
-            let f = ArtistFilter::from_file(path)?;
-            info!("Loaded {} library artists from {}", f.len(), path.display());
-            Some(f)
-        }
-        None => None,
-    };
+    // Single-file mode has no companion artist_alias.csv to draw from, so
+    // alias-enhanced matching is unavailable here.
+    let filter = build_filter(&cfg, None)?;
 
     match &cfg.sink {
         ReleaseSink::Pg {
@@ -892,7 +953,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("artists.txt");
         std::fs::write(&path, "Autechre\nNilüfer Yanya\n").unwrap();
-        let filter = ArtistFilter::from_file(&path).unwrap();
+        let filter = ReleaseFilter::Artists(ArtistFilter::from_file(&path).unwrap());
 
         // Main artist matches
         let release = make_release(vec![(1, "Autechre")], vec![]);
@@ -920,8 +981,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut filter = ArtistFilter::from_file(&lib_path).unwrap();
-        filter.load_aliases(&alias_path).unwrap();
+        let mut artist_filter = ArtistFilter::from_file(&lib_path).unwrap();
+        artist_filter.load_aliases(&alias_path).unwrap();
+        let filter = ReleaseFilter::Artists(artist_filter);
 
         // Canonical name doesn't match, but alias does via artist_id
         let release = make_release(vec![(123, "Sun Ra")], vec![]);
@@ -930,6 +992,52 @@ mod tests {
         // Unknown artist doesn't match
         let release = make_release(vec![(999, "Unknown")], vec![]);
         assert!(!matches_filter(&filter, &release));
+    }
+
+    #[test]
+    fn test_matches_filter_with_pairs() {
+        // Build a library.db with two pairs and verify matches_filter
+        // dispatches to LibraryPairs::matches.
+        use rusqlite::Connection;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("library.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE library (\
+                id INTEGER PRIMARY KEY AUTOINCREMENT,\
+                artist TEXT NOT NULL,\
+                title TEXT NOT NULL,\
+                format TEXT\
+             );\
+             INSERT INTO library (artist, title) VALUES \
+                ('Autechre', 'Confield'),\
+                ('Stereolab', 'Aluminum Tunes');",
+        )
+        .unwrap();
+        drop(conn);
+        let pairs = LibraryPairs::from_db(&db_path).unwrap();
+        let filter = ReleaseFilter::Pairs(pairs);
+
+        // Title in library, artist in library's set for that title
+        let mut release = make_release(vec![(1, "Autechre")], vec![]);
+        release.title = "Confield".to_string();
+        assert!(matches_filter(&filter, &release));
+
+        // Title in library but artist isn't credited on this release
+        let mut release = make_release(vec![(99, "Unknown")], vec![]);
+        release.title = "Confield".to_string();
+        assert!(!matches_filter(&filter, &release));
+
+        // Title not in library
+        let mut release = make_release(vec![(1, "Autechre")], vec![]);
+        release.title = "Some Other Album".to_string();
+        assert!(!matches_filter(&filter, &release));
+
+        // Diacritic mismatch on artist still matches via normalization
+        let mut release = make_release(vec![(2, "Stereolab")], vec![]);
+        release.title = "ALUMINUM TUNES".to_string();
+        assert!(matches_filter(&filter, &release));
     }
 
     fn fixture_path(name: &str) -> PathBuf {

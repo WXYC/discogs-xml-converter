@@ -14,6 +14,7 @@ Purpose-built Rust tool for converting Discogs XML data dumps to CSV files compa
 - `writer.rs` -- `CsvOutput` implementation of `ReleaseOutput` using `wxyc_etl::csv_writer::MultiCsvWriter` for 9 CSV files matching `import_csv.py` contract
 - `pg_output.rs` -- `PgOutput` implementation of `ReleaseOutput` for direct-to-PostgreSQL streaming via COPY; uses `wxyc_etl::pg::BatchCopier` for FK-ordered flush and `wxyc_etl::pg::copy` for COPY TEXT escaping; domain-specific post-import logic (artwork URLs, track counts, cache_metadata) remains local
 - `filter.rs` -- `ArtistFilter` HashSet-based artist name filtering with alias support; normalization delegates to `wxyc_etl::text::normalize_artist_name()`
+- `library_pairs.rs` -- `LibraryPairs` inverted index `{normalized_title -> set<normalized_artist>}` loaded from a SQLite `library.db`. Powers the `--library-db` pair-wise filter that narrows the converter's ~4M-release artist-only output to ~50K so the import fits Railway-sized destination DBs. Mirrors `discogs-etl/scripts/filter_csv.py::load_library_pairs`
 - `main.rs` -- CLI using clap derive with `build` / `import` subcommands; flattens `wxyc_etl::cli::{DatabaseArgs, ResumableBuildArgs, ImportArgs}` for the cache-builder convention; parallel release processing pipeline (scanner thread + rayon worker pool + sequential writer); output dispatch between CSV and PG sinks
 
 ### Parallel Processing Pipeline
@@ -70,7 +71,6 @@ cargo build --release   # produces target/release/discogs-xml-converter
 - `cargo clippy` for linting
 - Targets macOS ARM64 and Linux x86_64
 
-<<<<<<< HEAD
 ## Observability
 
 `main.rs` initializes `wxyc_etl::logger` at startup. Logs emit as one JSON object per line on stdout; panics and `tracing::error!` events forward to Sentry when `SENTRY_DSN` is set in the environment. Without a DSN, JSON logging still works and Sentry stays inactive.
@@ -82,16 +82,22 @@ Sentry tags applied to every event:
 - `step` -- set per-span via `tracing::info_span!("...", step = "...")`
 
 TODO: provision `SENTRY_DSN` in the environments that invoke this tool (discogs-etl GitHub Actions workflow + any manual cache rebuild scripts on EC2). DSN provisioning is tracked separately from this wireup.
-=======
+
 ## CLI shape (cache-builder convention)
 
 The tool exposes two subcommands that compose shared `wxyc_etl::cli` argument groups:
 
-- `discogs-xml-converter build <input> [--data-dir DIR] [--state-file FILE] [--resume] [--library-artists FILE] [--limit N]` — convert XML to CSV files in `--data-dir` (defaults to `./data`). `--resume` is accepted for parity with other cache builders but is currently a no-op (this tool is single-pass).
-- `discogs-xml-converter import <input> --database-url URL [--data-dir DIR] [--fresh] [--batch-size N]` — stream releases directly into PostgreSQL via COPY. `--database-url` falls back to the `DATABASE_URL_DISCOGS` environment variable. `--fresh` runs `TRUNCATE release ... CASCADE` before importing.
+- `discogs-xml-converter build <input> [--data-dir DIR] [--state-file FILE] [--resume] [--library-artists FILE | --library-db FILE] [--limit N]` — convert XML to CSV files in `--data-dir` (defaults to `./data`). `--resume` is accepted for parity with other cache builders but is currently a no-op (this tool is single-pass).
+- `discogs-xml-converter import <input> --database-url URL [--data-dir DIR] [--fresh] [--batch-size N] [--library-artists FILE | --library-db FILE]` — stream releases directly into PostgreSQL via COPY. `--database-url` falls back to the `DATABASE_URL_DISCOGS` environment variable. `--fresh` runs `TRUNCATE release ... CASCADE` before importing.
 
 `--output-dir` is accepted as a deprecation alias for `--data-dir` (with a stderr warning) for one release. The deprecation alias is enforced in tests; remove it in the next breaking-change cycle once all callers (`discogs-etl`'s `run_pipeline.py`) have migrated.
->>>>>>> 695744b (Migrate to standardized cache-builder CLI)
+
+### Filter modes
+
+`--library-artists` and `--library-db` are mutually exclusive. Both run in the streaming scanner — releases are tested as they're parsed, so filtered-out releases never enter the writer's buffers.
+
+- `--library-artists FILE` keeps any release whose credited artist (main or extra) appears in `library_artists.txt`. In directory mode, an `artist_alias.csv` companion enables alias-aware matching by `artist_id`. Yields ~4M releases on a current Discogs dump — too large for Railway-sized destination DBs (overflows during `COPY release_artist`).
+- `--library-db FILE` keeps any release whose `(artist, title)` pair appears in the SQLite `library.db` (the `library` table's `artist`, `title` columns). Both sides are normalized via `wxyc_etl::text::to_match_form` so diacritics don't matter. Yields ~50K releases — the size that fits Railway-sized targets and is what `rebuild-cache.sh` runs in production. The pair-filter implementation lives in `src/library_pairs.rs` and is parity-tested against `discogs-etl/scripts/filter_csv.py::filter_csvs_by_pairs` in `tests/parity_test.rs` (opt-in via `DISCOGS_ETL_REPO`).
 
 ## Key Design Decisions
 
