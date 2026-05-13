@@ -36,15 +36,12 @@ jobs:
           targets: x86_64-unknown-linux-gnu
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+        # Matches the cache pattern in .github/workflows/ci.yml so cold-start
+        # behavior is consistent across both workflows. Swatinem handles
+        # cargo-workspace specifics (rustc version in the key, target/
+        # exclusions for incompatible artifacts) that the hand-rolled
+        # actions/cache@v4 approach doesn't.
+        uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
         run: cargo build --release --target x86_64-unknown-linux-gnu
