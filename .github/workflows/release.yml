@@ -1,0 +1,95 @@
+name: Release Binary
+
+# Publishes a prebuilt x86_64-unknown-linux-gnu binary as a GitHub Release
+# asset, so consumers (currently WXYC/discogs-etl's monthly cache rebuild)
+# can skip the ~20-30 min cargo build on every run. Consumers fall back to
+# building from source if the prebuilt asset is unavailable.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to create releases
+
+concurrency:
+  # Serialize publishes so two simultaneous pushes don't race on the tag.
+  group: release-binary
+  cancel-in-progress: false
+
+jobs:
+  build_and_release:
+    name: Build x86_64-unknown-linux-gnu and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Strip + verify binary
+        id: package
+        run: |
+          set -euo pipefail
+          BIN=target/x86_64-unknown-linux-gnu/release/discogs-xml-converter
+          test -x "$BIN" || { echo "::error::binary not produced at $BIN"; exit 1; }
+          strip "$BIN"
+          # Smoke: must respond to --version. If --version isn't supported, fall
+          # back to --help, which is a strict subset of any clap-derived CLI.
+          ("$BIN" --version 2>&1 || "$BIN" --help 2>&1) | head -5
+          mkdir -p dist
+          # Embed only the binary itself in the tarball — no surrounding dirs —
+          # so consumers can extract with a single ``tar xzf`` and find the
+          # binary at the top level of the extraction target.
+          tar -czf dist/discogs-xml-converter-linux-x86_64.tar.gz -C "$(dirname "$BIN")" \
+              "$(basename "$BIN")"
+          (cd dist && sha256sum discogs-xml-converter-linux-x86_64.tar.gz \
+              > discogs-xml-converter-linux-x86_64.tar.gz.sha256)
+          # Surface the short SHA + cargo version for the release notes.
+          {
+            echo "short_sha=$(git rev-parse --short HEAD)"
+            echo "version=$(grep -m1 '^version =' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="bin-${{ steps.package.outputs.short_sha }}"
+          TITLE="discogs-xml-converter v${{ steps.package.outputs.version }} (${{ steps.package.outputs.short_sha }})"
+          # If the tag exists already (e.g., manual re-run on the same commit),
+          # delete the prior release so the workflow stays idempotent.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes "Prebuilt x86_64-unknown-linux-gnu binary for commit ${{ github.sha }}.
+          Consumed by WXYC/discogs-etl's \`scripts/rebuild-cache.sh\` with a cargo-build fallback.
+          Verify via the .sha256 sibling asset before extracting." \
+            --target "${{ github.sha }}" \
+            dist/discogs-xml-converter-linux-x86_64.tar.gz \
+            dist/discogs-xml-converter-linux-x86_64.tar.gz.sha256
