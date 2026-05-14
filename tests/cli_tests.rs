@@ -540,6 +540,10 @@ fn test_directory_input() {
         "artist_alias.csv should be created"
     );
     assert!(
+        output_dir.path().join("artist_name_variation.csv").exists(),
+        "artist_name_variation.csv should be created"
+    );
+    assert!(
         output_dir.path().join("artist_member.csv").exists(),
         "artist_member.csv should be created"
     );
