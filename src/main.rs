@@ -1250,6 +1250,7 @@ mod tests {
         // Compare all output files
         for filename in &[
             "artist_alias.csv",
+            "artist_name_variation.csv",
             "artist_member.csv",
             "label_hierarchy.csv",
         ] {
