@@ -42,21 +42,44 @@ impl ArtistFilter {
         })
     }
 
-    /// Load artist aliases from `artist_alias.csv`.
+    /// Load artist aliases from `artist_alias.csv` (Discogs `<aliases>`).
     ///
     /// Builds a lookup from artist_id to normalized alias names. When combined
     /// with `matches_any_with_ids()`, this enables matching releases where the
     /// credited artist is known by a different name in the library.
+    ///
+    /// The CSV is expected to have columns `artist_id, artist_name, alias_name`.
+    /// Use [`load_name_variations`] to load Discogs `<namevariations>` from
+    /// `artist_name_variation.csv` in the same way.
     pub fn load_aliases(&mut self, csv_path: &Path) -> anyhow::Result<usize> {
+        self.load_alt_names_csv(csv_path, 2)
+    }
+
+    /// Load artist name variations from `artist_name_variation.csv` (Discogs
+    /// `<namevariations>`).
+    ///
+    /// Same lookup contract as [`load_aliases`]: builds the artist_id→names
+    /// map used by `matches_any_with_ids`. Discogs distinguishes aliases
+    /// (alter egos) from namevariations (spelling variants); both contribute
+    /// to filter recall and live in the same in-memory map. The two CSV
+    /// shapes differ — alias rows have an extra `artist_name` column — so
+    /// the column index for the name is parameterised internally.
+    ///
+    /// The CSV is expected to have columns `artist_id, name`.
+    pub fn load_name_variations(&mut self, csv_path: &Path) -> anyhow::Result<usize> {
+        self.load_alt_names_csv(csv_path, 1)
+    }
+
+    fn load_alt_names_csv(&mut self, csv_path: &Path, name_col: usize) -> anyhow::Result<usize> {
         let mut rdr = csv::Reader::from_path(csv_path)?;
         let mut count = 0;
 
         for result in rdr.records() {
             let record = result?;
             let artist_id: u64 = record[0].parse().unwrap_or(0);
-            let alias_name = &record[2]; // alias_name column
+            let name = &record[name_col];
 
-            let normalized = normalize_artist(alias_name);
+            let normalized = normalize_artist(name);
             if !normalized.is_empty() {
                 self.aliases.entry(artist_id).or_default().push(normalized);
                 count += 1;
@@ -343,6 +366,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_load_name_variations_and_match() {
+        // Pre-split, namevariations were folded into artist_alias.csv and
+        // therefore contributed to filter recall. After the split (#215)
+        // they live in artist_name_variation.csv; the filter must keep
+        // that recall by loading both.
+        let dir = tempfile::tempdir().unwrap();
+
+        let lib_path = dir.path().join("artists.txt");
+        // Library credits the variation form.
+        fs::write(&lib_path, "Le Sony'r Ra\n").unwrap();
+
+        let nv_path = dir.path().join("artist_name_variation.csv");
+        fs::write(
+            &nv_path,
+            "artist_id,name\n\
+             123,Le Sony'r Ra\n\
+             123,Sonny Ra\n",
+        )
+        .unwrap();
+
+        let mut filter = ArtistFilter::from_file(&lib_path).unwrap();
+        let count = filter.load_name_variations(&nv_path).unwrap();
+        assert_eq!(count, 2);
+        assert!(filter.has_aliases());
+
+        // Canonical "Sun Ra" name does not match, but the variation does
+        // via artist_id lookup.
+        assert!(!filter.matches_any(["Sun Ra"].iter().copied()));
+        assert!(filter.matches_any_with_ids(&[(123, "Sun Ra")]));
     }
 
     #[test]
