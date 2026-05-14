@@ -1072,6 +1072,45 @@ mod tests {
         assert_eq!(track.extra_artists[2].role, "Mixed By");
     }
 
+    /// An empty `<role></role>` element on a track-level extra artist
+    /// must yield `role = ""` (not panic, not "empty", not the previous
+    /// extra artist's role). Downstream, the empty string is coerced
+    /// to NULL by both the PG path (`\N`) and the CSV consumer (per
+    /// WXYC/discogs-etl#221).
+    #[test]
+    fn test_parse_track_extra_artist_empty_role_element() {
+        let xml = br#"<release id="1001" status="Accepted">
+    <title>Test</title>
+    <artists>
+      <artist><id>1</id><name>Main Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Solo Track</title>
+        <duration>3:00</duration>
+        <extraartists>
+          <artist>
+            <id>2</id>
+            <name>Some Producer</name>
+            <anv></anv>
+            <join></join>
+            <role></role>
+          </artist>
+        </extraartists>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.tracks.len(), 1);
+        let track = &release.tracks[0];
+        assert_eq!(track.extra_artists.len(), 1);
+        assert_eq!(track.extra_artists[0].name, "Some Producer");
+        // Empty <role></role> element → empty string, NOT "empty" / panic.
+        assert_eq!(track.extra_artists[0].role, "");
+    }
+
     /// Release-level `<extraartists>` `<role>` elements must not leak
     /// into track-level state. The track parser only consumes
     /// `<role>` while `in_track_extraartists`.

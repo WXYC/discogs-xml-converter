@@ -14,11 +14,18 @@ use anyhow::{Context, Result};
 use log::info;
 use wxyc_etl::pg::{
     escape_copy_text_into, extract_year, pick_artwork_url, write_copy_int, ArtistDedup,
-    BatchCopier, LabelDedup, TrackArtistDedup,
+    BatchCopier, DedupSet, LabelDedup,
 };
 
 use crate::model::Release;
 use crate::output::ReleaseOutput;
+
+/// Track-artist dedup key widened from `(release_id, sequence, name)` to
+/// `(release_id, sequence, name, extra)` so that a person credited as
+/// both the main performer and an `<extraartists>` role on the same
+/// track (e.g. a self-producing artist) keeps both rows. The narrow
+/// `wxyc_etl::pg::TrackArtistDedup` alias would silently collapse them.
+type WideTrackArtistDedup = DedupSet<(u64, u32, String, bool)>;
 
 /// Accumulated artwork URLs for post-import UPDATE.
 pub type ArtworkMap = HashMap<u64, String>;
@@ -36,7 +43,7 @@ pub struct PgOutput {
     copier: BatchCopier,
     artist_dedup: ArtistDedup,
     label_dedup: LabelDedup,
-    track_artist_dedup: TrackArtistDedup,
+    track_artist_dedup: WideTrackArtistDedup,
     artwork: ArtworkMap,
     track_counts: TrackCountMap,
 }
@@ -97,7 +104,7 @@ impl PgOutput {
             copier,
             artist_dedup: ArtistDedup::new(),
             label_dedup: LabelDedup::new(),
-            track_artist_dedup: TrackArtistDedup::new(),
+            track_artist_dedup: WideTrackArtistDedup::new(),
             artwork: HashMap::new(),
             track_counts: HashMap::new(),
         })
@@ -240,15 +247,19 @@ impl ReleaseOutput for PgOutput {
             // Track artists. `extra` and `role` (WXYC/discogs-etl#218)
             // distinguish main credits (extra=0, role NULL) from
             // extra-artist credits (extra=1, role from the source
-            // `<role>` element). Main artists are emitted first so that
-            // when the same name appears in both `<artists>` and
-            // `<extraartists>`, the main-credit row wins under the
-            // (release_id, sequence, name) dedup key.
+            // `<role>` element). The dedup key is widened to include
+            // `extra` so that main and extra credits for the same
+            // person on the same track are both retained (the
+            // producer-of-self case: an artist who is the main
+            // performer AND credited as Producer keeps both rows).
+            // Within either bucket, repeated names are still collapsed.
             for artist in &track.artists {
-                if !self
-                    .track_artist_dedup
-                    .insert((release.id, seq, artist.name.to_string()))
-                {
+                if !self.track_artist_dedup.insert((
+                    release.id,
+                    seq,
+                    artist.name.to_string(),
+                    false,
+                )) {
                     continue;
                 }
                 let buf = self.copier.buffer("release_track_artist");
@@ -262,7 +273,7 @@ impl ReleaseOutput for PgOutput {
             for artist in &track.extra_artists {
                 if !self
                     .track_artist_dedup
-                    .insert((release.id, seq, artist.name.to_string()))
+                    .insert((release.id, seq, artist.name.to_string(), true))
                 {
                     continue;
                 }
@@ -274,6 +285,12 @@ impl ReleaseOutput for PgOutput {
                 escape_copy_text_into(buf, &artist.name);
                 buf.push(b'\t');
                 buf.extend_from_slice(b"1\t");
+                // PG path writes `\N` for missing role to satisfy COPY's
+                // NULL convention. The CSV path (writer.rs) emits the
+                // empty string for the same case; the downstream loader
+                // (`discogs-etl/scripts/import_csv.py`, see
+                // WXYC/discogs-etl#221) must coerce empty `role` to
+                // NULL for parity between the two ingest paths.
                 if artist.role.is_empty() {
                     buf.extend_from_slice(b"\\N");
                 } else {
@@ -446,7 +463,9 @@ impl ReleaseOutput for PgOutput {
 
 #[cfg(test)]
 mod tests {
-    use wxyc_etl::pg::{copy_line, empty_to_none, escape_copy_text, write_copy_row};
+    use wxyc_etl::pg::{
+        copy_line, empty_to_none, escape_copy_text, write_copy_row, TrackArtistDedup,
+    };
 
     // -- extract_year tests (now delegating to wxyc_etl) --
 
@@ -1131,6 +1150,76 @@ mod tests {
             .query_one("SELECT count(*) FROM release_label", &[])
             .unwrap();
         assert_eq!(row.get::<_, i64>(0), 1);
+    }
+
+    /// Producer-of-self: the same person credited as the main performer
+    /// AND as the producer on the same track must yield TWO rows, not
+    /// one. Older versions of this code keyed the dedup set on
+    /// `(release_id, sequence, name)` and silently dropped the
+    /// `Producer` row; the widened `(release_id, sequence, name, extra)`
+    /// key preserves both. See WXYC/discogs-xml-converter#55 review.
+    #[test]
+    fn test_pg_output_track_artist_main_and_extra_same_name_preserved() {
+        let db_url = match test_db_url() {
+            Some(url) => url,
+            None => return,
+        };
+
+        let mut setup_client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+        set_up_test_schema(&mut setup_client);
+        drop(setup_client);
+
+        let mut output = PgOutput::new(&db_url, 10000).unwrap();
+
+        // Track has "Alex Paterson" as both main credit AND as producer
+        // in <extraartists>. Both rows must survive.
+        let release = crate::model::Release {
+            id: 9001,
+            title: "Self-Produced".to_string(),
+            artists: vec![crate::model::ReleaseArtist {
+                artist_id: 10,
+                name: "Alex Paterson".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            tracks: vec![crate::model::ReleaseTrack {
+                position: "1".to_string(),
+                title: "Track One".to_string(),
+                duration: "5:00".to_string(),
+                artists: vec![crate::model::TrackArtist {
+                    name: "Alex Paterson".to_string(),
+                    role: String::new(),
+                }],
+                extra_artists: vec![crate::model::TrackArtist {
+                    name: "Alex Paterson".to_string(),
+                    role: "Producer".to_string(),
+                }],
+            }],
+            ..Default::default()
+        };
+        output.write_release(&release).unwrap();
+        output.finish().unwrap();
+
+        let mut client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+
+        // Both rows survive: main (extra=0, role NULL) and producer
+        // (extra=1, role='Producer'). The pre-fix dedup key collapsed
+        // these to one row, losing the producer credit.
+        let rows = client
+            .query(
+                "SELECT artist_name, extra, role FROM release_track_artist
+                 WHERE release_id = 9001 AND track_sequence = 1
+                 ORDER BY extra",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 2, "main and extra credits should both be kept");
+        assert_eq!(rows[0].get::<_, &str>(0), "Alex Paterson");
+        assert_eq!(rows[0].get::<_, Option<i32>>(1), Some(0));
+        assert_eq!(rows[0].get::<_, Option<&str>>(2), None);
+        assert_eq!(rows[1].get::<_, &str>(0), "Alex Paterson");
+        assert_eq!(rows[1].get::<_, Option<i32>>(1), Some(1));
+        assert_eq!(rows[1].get::<_, Option<&str>>(2), Some("Producer"));
     }
 
     #[test]

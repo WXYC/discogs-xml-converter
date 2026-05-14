@@ -215,6 +215,14 @@ impl CsvOutput {
                 ])?;
             }
             for artist in &track.extra_artists {
+                // `role` is the source-side `<role>` element verbatim;
+                // empty when the XML omits or empties the element. The
+                // CSV path emits the empty string here, while the PG
+                // direct-import path (`pg_output.rs`) emits `\N` to
+                // satisfy COPY's NULL convention. For parity, the
+                // downstream loader (`discogs-etl/scripts/import_csv.py`,
+                // see WXYC/discogs-etl#221) must coerce empty `role`
+                // to NULL when ingesting this CSV.
                 self.csv.writer(RELEASE_TRACK_ARTIST).write_record([
                     &id_str,
                     &sequence,
