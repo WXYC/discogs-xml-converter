@@ -67,7 +67,10 @@ impl PgOutput {
                 ),
                 (
                     "release_track_artist",
-                    "COPY release_track_artist (release_id, track_sequence, artist_name) FROM STDIN",
+                    // `extra` and `role` added per WXYC/discogs-etl#218 so
+                    // downstream consumers can filter to main-artist
+                    // credits and inspect the source-side role string.
+                    "COPY release_track_artist (release_id, track_sequence, artist_name, extra, role) FROM STDIN",
                 ),
                 (
                     "release_genre",
@@ -234,8 +237,14 @@ impl ReleaseOutput for PgOutput {
                 buf.push(b'\n');
             }
 
-            // Track artists (both main and extra)
-            for artist in track.artists.iter().chain(track.extra_artists.iter()) {
+            // Track artists. `extra` and `role` (WXYC/discogs-etl#218)
+            // distinguish main credits (extra=0, role NULL) from
+            // extra-artist credits (extra=1, role from the source
+            // `<role>` element). Main artists are emitted first so that
+            // when the same name appears in both `<artists>` and
+            // `<extraartists>`, the main-credit row wins under the
+            // (release_id, sequence, name) dedup key.
+            for artist in &track.artists {
                 if !self
                     .track_artist_dedup
                     .insert((release.id, seq, artist.name.to_string()))
@@ -248,6 +257,28 @@ impl ReleaseOutput for PgOutput {
                 write_copy_int(buf, seq);
                 buf.push(b'\t');
                 escape_copy_text_into(buf, &artist.name);
+                buf.extend_from_slice(b"\t0\t\\N\n");
+            }
+            for artist in &track.extra_artists {
+                if !self
+                    .track_artist_dedup
+                    .insert((release.id, seq, artist.name.to_string()))
+                {
+                    continue;
+                }
+                let buf = self.copier.buffer("release_track_artist");
+                write_copy_int(buf, release.id);
+                buf.push(b'\t');
+                write_copy_int(buf, seq);
+                buf.push(b'\t');
+                escape_copy_text_into(buf, &artist.name);
+                buf.push(b'\t');
+                buf.extend_from_slice(b"1\t");
+                if artist.role.is_empty() {
+                    buf.extend_from_slice(b"\\N");
+                } else {
+                    escape_copy_text_into(buf, &artist.role);
+                }
                 buf.push(b'\n');
             }
         }
@@ -778,7 +809,9 @@ mod tests {
                 CREATE TABLE release_track_artist (
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
                     track_sequence integer NOT NULL,
-                    artist_name text NOT NULL
+                    artist_name text NOT NULL,
+                    extra integer DEFAULT 0,
+                    role text
                 );
                 CREATE TABLE release_genre (
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,

@@ -74,7 +74,19 @@ impl CsvOutput {
             ),
             CsvFileSpec::new(
                 "release_track_artist.csv",
-                &["release_id", "track_sequence", "artist_name"],
+                // `extra` and `role` (added per WXYC/discogs-etl#218)
+                // distinguish main-artist credits (extra=0, role empty) from
+                // extra-artist credits (extra=1, role e.g. "Producer"). Older
+                // converters omitted these columns; the downstream loader
+                // tolerates missing columns by reading by header, so a 3-col
+                // CSV continues to import (the new columns default NULL).
+                &[
+                    "release_id",
+                    "track_sequence",
+                    "artist_name",
+                    "extra",
+                    "role",
+                ],
             ),
             CsvFileSpec::new(
                 "release_image.csv",
@@ -188,12 +200,18 @@ impl CsvOutput {
                 &track.duration,
             ])?;
 
-            // Track artists (both main and extra go to the same table)
+            // Track artists (both main and extra go to the same table).
+            // `extra` and `role` (WXYC/discogs-etl#218) let downstream
+            // consumers filter to main-artist credits with
+            // `WHERE extra = 0` and inspect the source-side role string
+            // for extra credits.
             for artist in &track.artists {
                 self.csv.writer(RELEASE_TRACK_ARTIST).write_record([
                     &id_str,
                     &sequence,
                     &artist.name,
+                    "0",
+                    "",
                 ])?;
             }
             for artist in &track.extra_artists {
@@ -201,6 +219,8 @@ impl CsvOutput {
                     &id_str,
                     &sequence,
                     &artist.name,
+                    "1",
+                    &artist.role,
                 ])?;
             }
         }
@@ -444,7 +464,13 @@ mod tests {
         );
         check_header(
             "release_track_artist.csv",
-            &["release_id", "track_sequence", "artist_name"],
+            &[
+                "release_id",
+                "track_sequence",
+                "artist_name",
+                "extra",
+                "role",
+            ],
         );
         check_header(
             "release_image.csv",
@@ -576,6 +602,7 @@ mod tests {
                     duration: "4:08".to_string(),
                     artists: vec![TrackArtist {
                         name: "Hedningarna".to_string(),
+                        role: String::new(),
                     }],
                     extra_artists: vec![],
                 },
@@ -585,6 +612,7 @@ mod tests {
                     duration: "5:12".to_string(),
                     artists: vec![TrackArtist {
                         name: "Garmarna".to_string(),
+                        role: String::new(),
                     }],
                     extra_artists: vec![],
                 },
@@ -596,13 +624,93 @@ mod tests {
         output.flush().unwrap();
 
         let mut rdr = csv::Reader::from_path(dir.path().join("release_track_artist.csv")).unwrap();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            headers,
+            vec![
+                "release_id",
+                "track_sequence",
+                "artist_name",
+                "extra",
+                "role"
+            ]
+        );
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
         assert_eq!(records.len(), 2);
         assert_eq!(&records[0][0], "8001"); // release_id
         assert_eq!(&records[0][1], "1"); // track_sequence
         assert_eq!(&records[0][2], "Hedningarna");
+        assert_eq!(&records[0][3], "0"); // extra
+        assert_eq!(&records[0][4], ""); // role
         assert_eq!(&records[1][1], "2");
         assert_eq!(&records[1][2], "Garmarna");
+        assert_eq!(&records[1][3], "0");
+        assert_eq!(&records[1][4], "");
+    }
+
+    /// Track-level `<extraartists>` (e.g. WXYC/discogs-etl#218: Live 93
+    /// crediting Paterson/Weston/Fehlmann via the source-side
+    /// `<extraartists>` block) are emitted with `extra=1` and the
+    /// source `<role>` string preserved. Main `<artists>` get
+    /// `extra=0` and empty role.
+    #[test]
+    fn test_track_artists_main_vs_extra_with_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = CsvOutput::new(dir.path()).unwrap();
+
+        let release = Release {
+            id: 674529,
+            tracks: vec![ReleaseTrack {
+                position: "5".to_string(),
+                title: "Towers Of Dub".to_string(),
+                duration: "10:00".to_string(),
+                artists: vec![TrackArtist {
+                    name: "The Orb".to_string(),
+                    role: String::new(),
+                }],
+                extra_artists: vec![
+                    TrackArtist {
+                        name: "Alex Paterson".to_string(),
+                        role: "Producer".to_string(),
+                    },
+                    TrackArtist {
+                        name: "Kris Weston".to_string(),
+                        role: "Co-Producer".to_string(),
+                    },
+                    TrackArtist {
+                        name: "Thomas Fehlmann".to_string(),
+                        role: "Mixed By".to_string(),
+                    },
+                ],
+            }],
+            ..Default::default()
+        };
+
+        output.write_release(&release).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("release_track_artist.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 4);
+        // Main artist first
+        assert_eq!(&records[0][2], "The Orb");
+        assert_eq!(&records[0][3], "0");
+        assert_eq!(&records[0][4], "");
+        // Extra artists with role preserved
+        assert_eq!(&records[1][2], "Alex Paterson");
+        assert_eq!(&records[1][3], "1");
+        assert_eq!(&records[1][4], "Producer");
+        assert_eq!(&records[2][2], "Kris Weston");
+        assert_eq!(&records[2][3], "1");
+        assert_eq!(&records[2][4], "Co-Producer");
+        assert_eq!(&records[3][2], "Thomas Fehlmann");
+        assert_eq!(&records[3][3], "1");
+        assert_eq!(&records[3][4], "Mixed By");
     }
 
     #[test]

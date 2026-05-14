@@ -81,6 +81,10 @@ pub struct ReleaseTrack {
 #[derive(Debug, Clone, Default)]
 pub struct TrackArtist {
     pub name: String,
+    /// Discogs `<role>` element value for `<extraartists>` children
+    /// (e.g. "Producer", "Mixed By", "Written-By"). Always empty for
+    /// `<artists>` (main-artist) entries. See WXYC/discogs-etl#218.
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -1,3 +1,4 @@
-release_id,track_sequence,artist_name
-8001,1,Hedningarna
-8001,2,Garmarna
+release_id,track_sequence,artist_name,extra,role
+8001,1,Hedningarna,0,
+8001,1,Anders Norudde,1,Producer
+8001,2,Garmarna,0,

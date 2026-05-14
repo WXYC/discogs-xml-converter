@@ -465,6 +465,13 @@
             <name>Hedningarna</name>
           </artist>
         </artists>
+        <extraartists>
+          <artist>
+            <id>200</id>
+            <name>Anders Norudde</name>
+            <role>Producer</role>
+          </artist>
+        </extraartists>
       </track>
       <track>
         <position>A2</position>

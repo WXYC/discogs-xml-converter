@@ -117,7 +117,9 @@ fn set_up_schema(client: &mut postgres::Client) {
              CREATE TABLE release_track_artist (
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
                  track_sequence integer NOT NULL,
-                 artist_name text NOT NULL
+                 artist_name text NOT NULL,
+                 extra integer DEFAULT 0,
+                 role text
              );
              CREATE TABLE release_genre (
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
