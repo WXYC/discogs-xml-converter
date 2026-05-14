@@ -1,9 +1,15 @@
 //! CSV output writer for Discogs artist data.
 //!
-//! Writes 3 CSV files:
+//! Writes 4 CSV files:
 //! - artist.csv (artist_id, artist_name, profile)
-//! - artist_alias.csv (artist_id, artist_name, alias_name)
+//! - artist_alias.csv (artist_id, artist_name, alias_name) — Discogs `<aliases>` (alter egos)
+//! - artist_name_variation.csv (artist_id, name) — Discogs `<namevariations>` (spelling variants)
 //! - artist_member.csv (group_artist_id, group_name, member_artist_id, member_name)
+//!
+//! Aliases and name variations are distinct in Discogs and are stored in
+//! separate tables on the consumer side (`artist_alias` and
+//! `artist_name_variation`). Folding them into one CSV used to leave
+//! `artist_name_variation` empty after a rebuild — see WXYC/discogs-etl#215.
 
 use std::fs;
 use std::path::Path;
@@ -13,10 +19,11 @@ use csv::Writer;
 
 use crate::artist_model::Artist;
 
-/// Manages CSV writers for artist, alias, and member output.
+/// Manages CSV writers for artist, alias, name-variation, and member output.
 pub struct ArtistCsvOutput {
     artist: Writer<fs::File>,
     alias: Writer<fs::File>,
+    name_variation: Writer<fs::File>,
     member: Writer<fs::File>,
 }
 
@@ -36,6 +43,9 @@ impl ArtistCsvOutput {
         let mut alias = Self::create_writer(output_dir, "artist_alias.csv")?;
         alias.write_record(["artist_id", "artist_name", "alias_name"])?;
 
+        let mut name_variation = Self::create_writer(output_dir, "artist_name_variation.csv")?;
+        name_variation.write_record(["artist_id", "name"])?;
+
         let mut member = Self::create_writer(output_dir, "artist_member.csv")?;
         member.write_record([
             "group_artist_id",
@@ -47,6 +57,7 @@ impl ArtistCsvOutput {
         Ok(ArtistCsvOutput {
             artist,
             alias,
+            name_variation,
             member,
         })
     }
@@ -59,29 +70,22 @@ impl ArtistCsvOutput {
     }
 
     /// Write an artist's aliases, name variations, and members to CSV files.
-    ///
-    /// Both aliases and name variations are written to artist_alias.csv since
-    /// they serve the same purpose: alternate names an artist might be credited under.
     pub fn write_artist(&mut self, artist: &Artist) -> Result<()> {
         let id_str = artist.id.to_string();
 
-        // Write artist row (only if profile is non-empty)
         if !artist.profile.is_empty() {
             self.artist
                 .write_record([&id_str, &artist.name, &artist.profile])?;
         }
 
-        // Write name variations as aliases
         for nv in &artist.name_variations {
-            self.alias.write_record([&id_str, &artist.name, nv])?;
+            self.name_variation.write_record([&id_str, nv])?;
         }
 
-        // Write aliases
         for alias in &artist.aliases {
             self.alias.write_record([&id_str, &artist.name, alias])?;
         }
 
-        // Write members
         for member in &artist.members {
             self.member.write_record([
                 &id_str,
@@ -98,6 +102,7 @@ impl ArtistCsvOutput {
     pub fn flush(&mut self) -> Result<()> {
         self.artist.flush()?;
         self.alias.flush()?;
+        self.name_variation.flush()?;
         self.member.flush()?;
         Ok(())
     }
@@ -200,14 +205,75 @@ mod tests {
 
         let mut rdr = csv::Reader::from_path(dir.path().join("artist_alias.csv")).unwrap();
         let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
-        // 2 name variations + 2 aliases = 4
-        assert_eq!(records.len(), 4);
+        // 2 aliases ONLY; name variations now land in artist_name_variation.csv.
+        assert_eq!(records.len(), 2);
         assert_eq!(&records[0][0], "123");
         assert_eq!(&records[0][1], "P. Diddy");
-        assert_eq!(&records[0][2], "P Diddy");
-        assert_eq!(&records[1][2], "Puff Daddy");
-        assert_eq!(&records[2][2], "Sean Combs");
-        assert_eq!(&records[3][2], "Diddy");
+        assert_eq!(&records[0][2], "Sean Combs");
+        assert_eq!(&records[1][2], "Diddy");
+    }
+
+    #[test]
+    fn test_write_artist_name_variations() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        output.write_artist(&sample_artist()).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("artist_name_variation.csv")).unwrap();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(headers, vec!["artist_id", "name"]);
+
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(&records[0][0], "123");
+        assert_eq!(&records[0][1], "P Diddy");
+        assert_eq!(&records[1][0], "123");
+        assert_eq!(&records[1][1], "Puff Daddy");
+    }
+
+    #[test]
+    fn test_name_variations_isolated_from_aliases() {
+        // Pin: name_variations and aliases must not cross-pollinate. If the
+        // converter ever folds them back together, the artist_name_variation
+        // table will silently stay empty on the consumer (WXYC/discogs-etl#215).
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        let artist = Artist {
+            id: 7,
+            name: "Solo".to_string(),
+            profile: String::new(),
+            name_variations: vec!["Solo (var)".to_string()],
+            aliases: vec![],
+            members: vec![],
+        };
+        output.write_artist(&artist).unwrap();
+        output.flush().unwrap();
+
+        let aliases: Vec<csv::StringRecord> =
+            csv::Reader::from_path(dir.path().join("artist_alias.csv"))
+                .unwrap()
+                .records()
+                .map(|r| r.unwrap())
+                .collect();
+        assert!(
+            aliases.is_empty(),
+            "name_variation must not leak into artist_alias"
+        );
+
+        let nvs: Vec<csv::StringRecord> =
+            csv::Reader::from_path(dir.path().join("artist_name_variation.csv"))
+                .unwrap()
+                .records()
+                .map(|r| r.unwrap())
+                .collect();
+        assert_eq!(nvs.len(), 1);
+        assert_eq!(&nvs[0][1], "Solo (var)");
     }
 
     #[test]

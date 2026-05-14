@@ -641,6 +641,14 @@ fn build_filter(
                     alias_count
                 );
             }
+            let nv_csv = data_dir.join("artist_name_variation.csv");
+            if nv_csv.exists() {
+                let nv_count = f.load_name_variations(&nv_csv)?;
+                info!(
+                    "Loaded {} artist name variations for enhanced filtering",
+                    nv_count
+                );
+            }
         }
         return Ok(Some(ReleaseFilter::Artists(f)));
     }
