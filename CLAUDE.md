@@ -105,7 +105,7 @@ The tool exposes two subcommands that compose shared `wxyc_etl::cli` argument gr
 - Releases with no `<artists>` are skipped (not written to any CSV)
 - Format string: single format uses name; qty > 1 prefixes with `{qty}x`; multiple formats are comma-separated
 - Track sequence is 1-indexed position in the `<tracklist>`
-- Both main and extra track artists go to `release_track_artist.csv` (no `extra` column in that table)
+- Both main and extra track artists go to `release_track_artist.csv`. The CSV carries an `extra` column (`0` for `<artists>` main credits, `1` for `<extraartists>` credits) and a `role` column (source-side `<role>` element, e.g. `Producer`, `Mixed By`; empty/NULL for main credits). Downstream consumers filter to main credits with `WHERE extra = 0`. Older converters omitted these columns; the discogs-etl loader keys on the CSV header, so a 3-column CSV continues to import with the new DB columns defaulting to `0` / `NULL`. See WXYC/discogs-etl#218.
 - `parse_release_from_bytes()` enables per-release XML parsing for the parallel pipeline; `extract_release_attrs()` is shared between single-stream and per-release parsers
 - The byte scanner finds `<release>` boundaries using `memchr::memmem` (SIMD-accelerated) searching for `b"<release "` (trailing space distinguishes from `<released>`) and `b"</release>"` (no suffix distinguishes from `</released>`)
 - `par_iter().map().collect()` preserves input order so CSV output is deterministic regardless of thread scheduling

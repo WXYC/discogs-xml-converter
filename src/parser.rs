@@ -439,8 +439,18 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"artist" => {
-                        if in_track_artists || in_track_extraartists {
+                        // WXYC/discogs-etl#218: track-level <artists> and
+                        // <extraartists> were both pushed onto
+                        // `current_track.artists`, collapsing main-credit and
+                        // extra-credit rows into one bucket. Route to the
+                        // correct slot based on which flag is set.
+                        if in_track_artists {
                             current_track.artists.push(current_track_artist.clone());
+                            current_track_artist = TrackArtist::default();
+                        } else if in_track_extraartists {
+                            current_track
+                                .extra_artists
+                                .push(current_track_artist.clone());
                             current_track_artist = TrackArtist::default();
                         } else if in_artists {
                             release.artists.push(current_artist.clone());
@@ -572,6 +582,16 @@ fn parse_release_body<R: BufRead>(
                     b"duration" => {
                         if in_track {
                             current_track.duration = current_text.clone();
+                        }
+                    }
+                    b"role" => {
+                        // Capture <role> only inside track-level <extraartists>.
+                        // Main <artists> entries have no role. Release-level
+                        // extraartists carry the role on `current_artist`
+                        // (ReleaseArtist) which we don't emit here.
+                        // See WXYC/discogs-etl#218.
+                        if in_track_extraartists {
+                            current_track_artist.role = current_text.clone();
                         }
                     }
                     _ => {}
@@ -985,5 +1005,110 @@ mod tests {
         // Release 1002 has no <videos> section
         let r1002 = releases.iter().find(|r| r.id == 1002).unwrap();
         assert_eq!(r1002.videos.len(), 0);
+    }
+
+    /// WXYC/discogs-etl#218: track-level `<extraartists>` are captured
+    /// separately from `<artists>`, and the `<role>` element on each
+    /// extra-artist entry is preserved on `TrackArtist::role`. Main
+    /// `<artists>` entries always have an empty role.
+    #[test]
+    fn test_parse_track_extra_artists_with_role() {
+        let xml = br#"<release id="674529" status="Accepted">
+    <title>Live 93</title>
+    <artists>
+      <artist><id>1</id><name>The Orb</name><anv></anv><join></join></artist>
+    </artists>
+    <tracklist>
+      <track>
+        <position>5</position>
+        <title>Towers Of Dub</title>
+        <duration>10:00</duration>
+        <artists>
+          <artist><id>1</id><name>The Orb</name><anv></anv><join></join></artist>
+        </artists>
+        <extraartists>
+          <artist>
+            <id>10</id>
+            <name>Alex Paterson</name>
+            <anv></anv>
+            <join></join>
+            <role>Producer</role>
+          </artist>
+          <artist>
+            <id>11</id>
+            <name>Kris Weston</name>
+            <anv></anv>
+            <join></join>
+            <role>Co-Producer</role>
+          </artist>
+          <artist>
+            <id>12</id>
+            <name>Thomas Fehlmann</name>
+            <anv></anv>
+            <join></join>
+            <role>Mixed By</role>
+          </artist>
+        </extraartists>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.tracks.len(), 1);
+        let track = &release.tracks[0];
+
+        // Main credit: The Orb, no role.
+        assert_eq!(track.artists.len(), 1);
+        assert_eq!(track.artists[0].name, "The Orb");
+        assert_eq!(track.artists[0].role, "");
+
+        // Extra credits: Paterson/Weston/Fehlmann with role strings.
+        assert_eq!(track.extra_artists.len(), 3);
+        assert_eq!(track.extra_artists[0].name, "Alex Paterson");
+        assert_eq!(track.extra_artists[0].role, "Producer");
+        assert_eq!(track.extra_artists[1].name, "Kris Weston");
+        assert_eq!(track.extra_artists[1].role, "Co-Producer");
+        assert_eq!(track.extra_artists[2].name, "Thomas Fehlmann");
+        assert_eq!(track.extra_artists[2].role, "Mixed By");
+    }
+
+    /// Release-level `<extraartists>` `<role>` elements must not leak
+    /// into track-level state. The track parser only consumes
+    /// `<role>` while `in_track_extraartists`.
+    #[test]
+    fn test_release_extra_artist_role_does_not_pollute_track_state() {
+        let xml = br#"<release id="1001" status="Accepted">
+    <title>Test</title>
+    <artists>
+      <artist><id>1</id><name>Main Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <extraartists>
+      <artist>
+        <id>2</id>
+        <name>Some Producer</name>
+        <anv></anv>
+        <join></join>
+        <role>Producer</role>
+      </artist>
+    </extraartists>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Solo Track</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        // Release-level extra artist preserved as before
+        assert_eq!(release.extra_artists.len(), 1);
+        assert_eq!(release.extra_artists[0].name, "Some Producer");
+
+        // Track has no artists/extra_artists; importantly nothing was
+        // accidentally populated by the release-level <role>.
+        assert_eq!(release.tracks.len(), 1);
+        assert_eq!(release.tracks[0].artists.len(), 0);
+        assert_eq!(release.tracks[0].extra_artists.len(), 0);
     }
 }

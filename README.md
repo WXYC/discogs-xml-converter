@@ -104,7 +104,7 @@ Produces 6 CSV files:
 | `release_artist.csv` | release_id, artist_id, artist_name, extra, anv, position, join_field |
 | `release_label.csv` | release_id, label, catno |
 | `release_track.csv` | release_id, sequence, position, title, duration |
-| `release_track_artist.csv` | release_id, track_sequence, artist_name |
+| `release_track_artist.csv` | release_id, track_sequence, artist_name, extra, role |
 | `release_image.csv` | release_id, type, width, height, uri |
 
 These are consumed by `discogs-etl/scripts/import_csv.py` using `csv.DictReader`.
