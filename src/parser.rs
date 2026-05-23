@@ -171,12 +171,17 @@ fn parse_release_body<R: BufRead>(
         ..Default::default()
     };
 
-    // State flags are sufficient to disambiguate elements without tracking
-    // the full XML path. In particular, <title> appears both at the release
-    // level and inside <track>; the `in_track` flag distinguishes the two.
-    // A Vec<String> path would add a String allocation per element, which is
+    // State flags + a single depth counter disambiguate elements without
+    // tracking the full XML path. `in_track`/`in_video` route <title> to
+    // the right struct; `depth` (relative to the immediate body of
+    // <release>; 0 == release-level child) protects `release.title` from
+    // being clobbered by stray <title> tags nested inside <notes>, format
+    // descriptions, or any other release-level container that happens to
+    // embed HTML-like markup. See WXYC/discogs-xml-converter#56. A
+    // Vec<String> path would add a String allocation per element, which is
     // significant when parsing millions of releases.
     let mut current_text = String::new();
+    let mut depth: u32 = 0;
 
     // Track artist parsing state
     let mut in_artists = false;
@@ -209,6 +214,7 @@ fn parse_release_body<R: BufRead>(
                 let qname = e.name();
                 let name = qname.as_ref();
                 current_text.clear();
+                depth += 1;
 
                 match name {
                     b"artists" => {
@@ -418,6 +424,9 @@ fn parse_release_body<R: BufRead>(
             Ok(Event::End(ref e)) => {
                 let qname = e.name();
                 let name = qname.as_ref();
+                // Decrement first so handlers see the depth of the
+                // element being closed (depth-0 == release-level child).
+                depth = depth.saturating_sub(1);
 
                 match name {
                     b"release" => {
@@ -468,18 +477,21 @@ fn parse_release_body<R: BufRead>(
                     b"tracklist" => {
                         in_tracklist = false;
                     }
-                    // Text content elements — <title> is disambiguated by
-                    // state flags rather than path tracking (see comment above).
-                    // Priority: video > track > release (most specific first).
+                    // Text content elements — <title> appears at video,
+                    // track, and release scope. Routing priority:
+                    // video > track > release-level (most specific first).
+                    // The depth gate (depth == 0 after decrement, i.e.
+                    // immediate child of <release>) prevents <title>
+                    // elements nested anywhere deeper — notes containing
+                    // HTML-like markup, format descriptions, identifier
+                    // descriptions, etc. — from clobbering release.title.
+                    // See WXYC/discogs-xml-converter#56.
                     b"title" => {
                         if in_video {
                             current_video.title = current_text.clone();
                         } else if in_track {
                             current_track.title = current_text.clone();
-                        } else if !in_tracklist {
-                            // At release level: set release title. The
-                            // in_tracklist guard prevents stray <title>
-                            // elements outside <track> from clobbering.
+                        } else if depth == 0 {
                             release.title = current_text.clone();
                         }
                     }
@@ -853,10 +865,9 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Regression test: <title> inside nested elements (e.g. inside formats
-    /// or other non-track containers) must not overwrite the release title.
-    /// This verifies the in_track/in_tracklist flag approach works correctly
-    /// without path tracking.
+    /// Regression test: stray text content with the word "title" inside
+    /// non-`<title>` containers (e.g. `<notes>`) must not bleed into
+    /// `release.title`.
     #[test]
     fn test_nested_title_does_not_clobber_release_title() {
         let xml = br#"<release id="42" status="Accepted">
@@ -891,6 +902,76 @@ mod tests {
         assert_eq!(release.tracks.len(), 2);
         assert_eq!(release.tracks[0].title, "Track One");
         assert_eq!(release.tracks[1].title, "Track Two");
+    }
+
+    /// WXYC/discogs-xml-converter#56: a `<title>` tag nested inside `<notes>`
+    /// (e.g. when a curator pasted HTML-like markup describing another work)
+    /// must not clobber `release.title`. The `<notes>` body opens depth-1
+    /// territory; a `<title>` at that depth is not the release-level title.
+    ///
+    /// Before the depth-tracking fix, the `!in_tracklist` guard at the
+    /// release-title write site fired here and the wrong title landed in
+    /// `release.title` — visible in prod as a discogs-cache row whose title
+    /// looks suspicious next to its track list.
+    #[test]
+    fn test_title_inside_notes_does_not_clobber_release_title() {
+        let xml = br#"<release id="39218" status="Accepted">
+    <title>Disco Not Disco 2</title>
+    <artists>
+      <artist><id>194</id><name>Various</name><anv></anv><join></join></artist>
+    </artists>
+    <notes>Originally released as <title>This Is Radio Clash</title> on a 12" in 1981.</notes>
+    <tracklist>
+      <track>
+        <position>A1</position>
+        <title>White Horse</title>
+        <duration>5:30</duration>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.id, 39218);
+        assert_eq!(
+            release.title, "Disco Not Disco 2",
+            "release.title must be the depth-0 <title>, not the one nested in <notes>"
+        );
+        assert_eq!(release.tracks.len(), 1);
+        assert_eq!(release.tracks[0].title, "White Horse");
+    }
+
+    /// WXYC/discogs-xml-converter#56: a `<title>` element appearing inside
+    /// any release-level container other than the top level (e.g. inside
+    /// `<format>` descriptions or any other deeper element) must not
+    /// clobber `release.title` either.
+    #[test]
+    fn test_title_inside_format_descriptions_does_not_clobber_release_title() {
+        let xml = br#"<release id="100" status="Accepted">
+    <title>Real Album Title</title>
+    <artists>
+      <artist><id>1</id><name>Some Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="CD" qty="1" text="">
+        <descriptions>
+          <description>Album</description>
+          <title>Bogus Format Title</title>
+        </descriptions>
+      </format>
+    </formats>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Track One</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.title, "Real Album Title");
+        assert_eq!(release.tracks.len(), 1);
+        assert_eq!(release.tracks[0].title, "Track One");
     }
 
     #[test]
