@@ -267,9 +267,10 @@ fn parse_release_body<R: BufRead>(
                         // `</track>` close the outer is restored.
                         // See WXYC/discogs-xml-converter#58.
                         if track_depth > 0 {
-                            sub_tracks_stack.push(current_track.clone());
+                            sub_tracks_stack.push(std::mem::take(&mut current_track));
+                        } else {
+                            current_track = ReleaseTrack::default();
                         }
-                        current_track = ReleaseTrack::default();
                         track_depth += 1;
                     }
                     b"label" => {
@@ -498,17 +499,15 @@ fn parse_release_body<R: BufRead>(
                         // `release.tracks`. Restructuring sub-tracks into a
                         // separate column / table is a follow-up scoped to
                         // discogs-etl. See WXYC/discogs-xml-converter#58.
-                        release.tracks.push(current_track.clone());
+                        // Pop the saved outer track when we close an inner
+                        // one so subsequent text (a trailing `<duration>`,
+                        // late `<artists>`, etc. emitted in the parent
+                        // after `</sub_tracks>`) routes back to it; at the
+                        // outer close the stack is empty and the pop falls
+                        // back to a fresh default.
+                        release.tracks.push(std::mem::take(&mut current_track));
                         track_depth = track_depth.saturating_sub(1);
-                        // If we were a sub-track, restore the outer track so
-                        // subsequent text content (a trailing `<duration>`,
-                        // late `<artists>`, etc. emitted in the parent after
-                        // `</sub_tracks>`) routes back to it.
-                        if track_depth > 0 {
-                            current_track = sub_tracks_stack.pop().unwrap_or_default();
-                        } else {
-                            current_track = ReleaseTrack::default();
-                        }
+                        current_track = sub_tracks_stack.pop().unwrap_or_default();
                     }
                     b"tracklist" => {
                         in_tracklist = false;
