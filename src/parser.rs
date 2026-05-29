@@ -171,15 +171,18 @@ fn parse_release_body<R: BufRead>(
         ..Default::default()
     };
 
-    // State flags + a single depth counter disambiguate elements without
-    // tracking the full XML path. `in_track`/`in_video` route <title> to
-    // the right struct; `depth` (relative to the immediate body of
+    // State flags + a pair of depth counters disambiguate elements without
+    // tracking the full XML path. `track_depth`/`in_video` route <title>
+    // to the right struct; `depth` (relative to the immediate body of
     // <release>; 0 == release-level child) protects `release.title` from
     // being clobbered by stray <title> tags nested inside <notes>, format
     // descriptions, or any other release-level container that happens to
-    // embed HTML-like markup. See WXYC/discogs-xml-converter#56. A
-    // Vec<String> path would add a String allocation per element, which is
-    // significant when parsing millions of releases.
+    // embed HTML-like markup. See WXYC/discogs-xml-converter#56.
+    // `track_depth` (tracked separately from the release-body `depth`,
+    // since it only ever moves on `<track>` open/close) handles nested
+    // `<track>` inside `<sub_tracks>`. See WXYC/discogs-xml-converter#58.
+    // A Vec<String> path would add a String allocation per element, which
+    // is significant when parsing millions of releases.
     let mut current_text = String::new();
     let mut depth: u32 = 0;
 
@@ -193,7 +196,18 @@ fn parse_release_body<R: BufRead>(
     let mut artist_position: u32 = 0;
     let mut current_track = ReleaseTrack::default();
     let mut in_tracklist = false;
-    let mut in_track = false;
+    // Track-nesting depth. The Discogs XML schema permits `<track>` to contain
+    // `<sub_tracks>` with further `<track>` elements (vinyl side groupings,
+    // classical movement breakdowns, "index tracks"). A single `in_track`
+    // boolean lost the parent's data when an inner `<track>` opened and
+    // dropped trailing parent data when the inner `</track>` closed. Tracking
+    // depth instead — with a stack to preserve the outer `current_track` while
+    // a sub-track is being parsed — keeps the parent row intact and lets
+    // sub-tracks land as sibling rows in `release.tracks`. Same depth-counter
+    // family as the release-title fix at this site (#56/#57).
+    // See WXYC/discogs-xml-converter#58.
+    let mut track_depth: u32 = 0;
+    let mut sub_tracks_stack: Vec<ReleaseTrack> = Vec::new();
 
     // Genres, styles, companies parsing state
     let mut in_genres = false;
@@ -218,7 +232,7 @@ fn parse_release_body<R: BufRead>(
 
                 match name {
                     b"artists" => {
-                        if in_track {
+                        if track_depth > 0 {
                             in_track_artists = true;
                         } else if !in_tracklist {
                             in_artists = true;
@@ -226,7 +240,7 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"extraartists" => {
-                        if in_track {
+                        if track_depth > 0 {
                             in_track_extraartists = true;
                         } else {
                             in_extraartists = true;
@@ -246,8 +260,17 @@ fn parse_release_body<R: BufRead>(
                         in_tracklist = true;
                     }
                     b"track" => {
-                        in_track = true;
+                        // Nested `<track>` (inside `<sub_tracks>`): stash
+                        // the outer track on the stack so its accumulated
+                        // data isn't clobbered. The inner track parses
+                        // into a fresh `ReleaseTrack`; on the inner
+                        // `</track>` close the outer is restored.
+                        // See WXYC/discogs-xml-converter#58.
+                        if track_depth > 0 {
+                            sub_tracks_stack.push(current_track.clone());
+                        }
                         current_track = ReleaseTrack::default();
+                        track_depth += 1;
                     }
                     b"label" => {
                         // Labels are empty elements with attributes
@@ -434,14 +457,14 @@ fn parse_release_body<R: BufRead>(
                         return Ok(release);
                     }
                     b"artists" => {
-                        if in_track {
+                        if track_depth > 0 {
                             in_track_artists = false;
                         } else {
                             in_artists = false;
                         }
                     }
                     b"extraartists" => {
-                        if in_track {
+                        if track_depth > 0 {
                             in_track_extraartists = false;
                         } else {
                             in_extraartists = false;
@@ -470,9 +493,22 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"track" => {
+                        // Emit the row regardless of nesting depth — both
+                        // parent and sub-tracks become sibling rows in
+                        // `release.tracks`. Restructuring sub-tracks into a
+                        // separate column / table is a follow-up scoped to
+                        // discogs-etl. See WXYC/discogs-xml-converter#58.
                         release.tracks.push(current_track.clone());
-                        current_track = ReleaseTrack::default();
-                        in_track = false;
+                        track_depth = track_depth.saturating_sub(1);
+                        // If we were a sub-track, restore the outer track so
+                        // subsequent text content (a trailing `<duration>`,
+                        // late `<artists>`, etc. emitted in the parent after
+                        // `</sub_tracks>`) routes back to it.
+                        if track_depth > 0 {
+                            current_track = sub_tracks_stack.pop().unwrap_or_default();
+                        } else {
+                            current_track = ReleaseTrack::default();
+                        }
                     }
                     b"tracklist" => {
                         in_tracklist = false;
@@ -489,7 +525,7 @@ fn parse_release_body<R: BufRead>(
                     b"title" => {
                         if in_video {
                             current_video.title = current_text.clone();
-                        } else if in_track {
+                        } else if track_depth > 0 {
                             current_track.title = current_text.clone();
                         } else if depth == 0 {
                             release.title = current_text.clone();
@@ -587,12 +623,12 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"position" => {
-                        if in_track {
+                        if track_depth > 0 {
                             current_track.position = current_text.clone();
                         }
                     }
                     b"duration" => {
-                        if in_track {
+                        if track_depth > 0 {
                             current_track.duration = current_text.clone();
                         }
                     }
@@ -1230,5 +1266,137 @@ mod tests {
         assert_eq!(release.tracks.len(), 1);
         assert_eq!(release.tracks[0].artists.len(), 0);
         assert_eq!(release.tracks[0].extra_artists.len(), 0);
+    }
+
+    /// WXYC/discogs-xml-converter#58: a `<track>` containing `<sub_tracks>`
+    /// with further `<track>` elements (used for vinyl side groupings,
+    /// classical movement breakdowns, "index tracks") must not corrupt the
+    /// parent track row. Before the depth-tracking fix, opening a nested
+    /// `<track>` overwrote `current_track` with a fresh default, so the
+    /// parent's `position`/`title`/`duration` were lost. Closing the inner
+    /// `</track>` pushed the nested row and cleared `in_track` while still
+    /// inside the outer `<track>`, dropping any trailing parent-level data
+    /// emitted after `</sub_tracks>`.
+    ///
+    /// Sibling shape: both the parent and its sub-tracks are emitted as
+    /// rows in `release.tracks`. Restructuring sub-tracks into their own
+    /// table is a follow-up scoped to discogs-etl.
+    #[test]
+    fn test_sub_tracks_do_not_corrupt_parent_track() {
+        // Real Discogs shape: a "side" or grouping track that contains
+        // sub_tracks with the actual playable items inside.
+        let xml = br#"<release id="1" status="Accepted">
+    <title>Some Album</title>
+    <artists>
+      <artist><id>1</id><name>Some Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <tracklist>
+      <track>
+        <position>A</position>
+        <title>Side A</title>
+        <duration></duration>
+        <sub_tracks>
+          <track>
+            <position>A1</position>
+            <title>First Movement</title>
+            <duration>5:00</duration>
+          </track>
+          <track>
+            <position>A2</position>
+            <title>Second Movement</title>
+            <duration>6:00</duration>
+          </track>
+        </sub_tracks>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+
+        // The parent track is preserved with its original position/title.
+        let parent = release
+            .tracks
+            .iter()
+            .find(|t| t.position == "A")
+            .expect("parent track present");
+        assert_eq!(parent.title, "Side A");
+
+        // The sub-tracks are also preserved (with their own positions/titles).
+        assert!(
+            release
+                .tracks
+                .iter()
+                .any(|t| t.position == "A1" && t.title == "First Movement"),
+            "first sub-track A1 present"
+        );
+        assert!(
+            release
+                .tracks
+                .iter()
+                .any(|t| t.position == "A2" && t.title == "Second Movement"),
+            "second sub-track A2 present"
+        );
+
+        // Exactly three rows: parent + two sub-tracks. Guards against a
+        // regression where the inner </track> close pushes a duplicate
+        // row at the outer </track> close.
+        assert_eq!(release.tracks.len(), 3);
+    }
+
+    /// WXYC/discogs-xml-converter#58: parent-track data emitted *after*
+    /// `</sub_tracks>` (trailing `<duration>`, `<title>` revisions, or
+    /// track-level `<artists>`) must route to the parent, not be dropped
+    /// because `in_track` was cleared by an inner `</track>` close.
+    #[test]
+    fn test_parent_track_data_after_sub_tracks_routes_to_parent() {
+        let xml = br#"<release id="2" status="Accepted">
+    <title>Compilation</title>
+    <artists>
+      <artist><id>1</id><name>Various</name><anv></anv><join></join></artist>
+    </artists>
+    <tracklist>
+      <track>
+        <position>B</position>
+        <title>Side B Suite</title>
+        <sub_tracks>
+          <track>
+            <position>B1</position>
+            <title>Part One</title>
+            <duration>2:30</duration>
+          </track>
+        </sub_tracks>
+        <duration>10:45</duration>
+        <artists>
+          <artist><id>42</id><name>Side Composer</name><anv></anv><join></join></artist>
+        </artists>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+
+        let parent = release
+            .tracks
+            .iter()
+            .find(|t| t.position == "B")
+            .expect("parent track present");
+        assert_eq!(parent.title, "Side B Suite");
+        // Trailing parent-level <duration> after </sub_tracks> must land on
+        // the parent (was previously dropped because in_track was cleared).
+        assert_eq!(parent.duration, "10:45");
+        // Trailing parent-level <artists> after </sub_tracks> must land on
+        // the parent track, not the release.
+        assert_eq!(parent.artists.len(), 1);
+        assert_eq!(parent.artists[0].name, "Side Composer");
+
+        let child = release
+            .tracks
+            .iter()
+            .find(|t| t.position == "B1")
+            .expect("sub-track B1 present");
+        assert_eq!(child.title, "Part One");
+        assert_eq!(child.duration, "2:30");
+
+        assert_eq!(release.tracks.len(), 2);
     }
 }
