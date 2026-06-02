@@ -17,7 +17,7 @@ rayon = "1.10"
 postgres = "0.19"
 itoa = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
-wxyc-etl = "0.3.0"
+wxyc-etl = "0.6.0"
 
 [dev-dependencies]
 tempfile = "3"
