@@ -1,10 +1,11 @@
 //! CSV output writer for Discogs artist data.
 //!
-//! Writes 4 CSV files:
+//! Writes 5 CSV files:
 //! - artist.csv (artist_id, artist_name, profile)
 //! - artist_alias.csv (artist_id, artist_name, alias_name) — Discogs `<aliases>` (alter egos)
 //! - artist_name_variation.csv (artist_id, name) — Discogs `<namevariations>` (spelling variants)
 //! - artist_member.csv (group_artist_id, group_name, member_artist_id, member_name)
+//! - artist_url.csv (artist_id, url) — Discogs `<urls>` (external links: Wikipedia, official sites, social)
 //!
 //! Aliases and name variations are distinct in Discogs and are stored in
 //! separate tables on the consumer side (`artist_alias` and
@@ -19,12 +20,13 @@ use csv::Writer;
 
 use crate::artist_model::Artist;
 
-/// Manages CSV writers for artist, alias, name-variation, and member output.
+/// Manages CSV writers for artist, alias, name-variation, member, and url output.
 pub struct ArtistCsvOutput {
     artist: Writer<fs::File>,
     alias: Writer<fs::File>,
     name_variation: Writer<fs::File>,
     member: Writer<fs::File>,
+    url: Writer<fs::File>,
 }
 
 impl ArtistCsvOutput {
@@ -54,11 +56,15 @@ impl ArtistCsvOutput {
             "member_name",
         ])?;
 
+        let mut url = Self::create_writer(output_dir, "artist_url.csv")?;
+        url.write_record(["artist_id", "url"])?;
+
         Ok(ArtistCsvOutput {
             artist,
             alias,
             name_variation,
             member,
+            url,
         })
     }
 
@@ -95,6 +101,10 @@ impl ArtistCsvOutput {
             ])?;
         }
 
+        for url in &artist.urls {
+            self.url.write_record([&id_str, url])?;
+        }
+
         Ok(())
     }
 
@@ -104,6 +114,7 @@ impl ArtistCsvOutput {
         self.alias.flush()?;
         self.name_variation.flush()?;
         self.member.flush()?;
+        self.url.flush()?;
         Ok(())
     }
 }
@@ -124,6 +135,10 @@ mod tests {
                 id: 1001,
                 name: "Member One".to_string(),
             }],
+            urls: vec![
+                "https://en.wikipedia.org/wiki/Sean_Combs".to_string(),
+                "https://www.diddy.com/".to_string(),
+            ],
         }
     }
 
@@ -251,6 +266,7 @@ mod tests {
             name_variations: vec!["Solo (var)".to_string()],
             aliases: vec![],
             members: vec![],
+            urls: vec![],
         };
         output.write_artist(&artist).unwrap();
         output.flush().unwrap();
@@ -274,6 +290,52 @@ mod tests {
                 .collect();
         assert_eq!(nvs.len(), 1);
         assert_eq!(&nvs[0][1], "Solo (var)");
+    }
+
+    #[test]
+    fn test_write_artist_urls() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        output.write_artist(&sample_artist()).unwrap();
+        output.flush().unwrap();
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("artist_url.csv")).unwrap();
+        let headers: Vec<String> = rdr
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(headers, vec!["artist_id", "url"]);
+
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(&records[0][0], "123");
+        assert_eq!(&records[0][1], "https://en.wikipedia.org/wiki/Sean_Combs");
+        assert_eq!(&records[1][0], "123");
+        assert_eq!(&records[1][1], "https://www.diddy.com/");
+    }
+
+    #[test]
+    fn test_skip_empty_urls() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = ArtistCsvOutput::new(dir.path()).unwrap();
+        let artist = Artist {
+            id: 42,
+            name: "No URLs".to_string(),
+            urls: vec![],
+            ..Default::default()
+        };
+        output.write_artist(&artist).unwrap();
+        output.flush().unwrap();
+
+        let records: Vec<csv::StringRecord> =
+            csv::Reader::from_path(dir.path().join("artist_url.csv"))
+                .unwrap()
+                .records()
+                .map(|r| r.unwrap())
+                .collect();
+        assert!(records.is_empty());
     }
 
     #[test]

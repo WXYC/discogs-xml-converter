@@ -87,6 +87,7 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
     let mut in_namevariations = false;
     let mut in_aliases = false;
     let mut in_members = false;
+    let mut in_urls = false;
     let mut current_member_id: u64 = 0;
 
     buf.clear();
@@ -101,6 +102,7 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
                     b"namevariations" => in_namevariations = true,
                     b"aliases" => in_aliases = true,
                     b"members" => in_members = true,
+                    b"urls" => in_urls = true,
                     b"name" => {
                         if in_aliases || in_members {
                             // Extract id attribute from <name id="...">
@@ -159,9 +161,18 @@ fn parse_artist_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> R
                             }
                         }
                     }
+                    b"url" => {
+                        if in_urls {
+                            let text = current_text.trim().to_string();
+                            if !text.is_empty() {
+                                artist.urls.push(text);
+                            }
+                        }
+                    }
                     b"namevariations" => in_namevariations = false,
                     b"aliases" => in_aliases = false,
                     b"members" => in_members = false,
+                    b"urls" => in_urls = false,
                     _ => {}
                 }
 
@@ -271,6 +282,27 @@ mod tests {
         // Nilüfer Yanya has no profile
         let yanya = &artists[1];
         assert!(yanya.profile.is_empty());
+    }
+
+    #[test]
+    fn test_artist_with_urls() {
+        let path = fixture_path("artists_fixture.xml");
+        let mut artists = Vec::new();
+        parse_artists(&path, |a| artists.push(a)).unwrap();
+
+        let sun_ra = &artists[0];
+        assert_eq!(
+            sun_ra.urls,
+            vec![
+                "https://en.wikipedia.org/wiki/Sun_Ra",
+                "https://www.sunraarkestra.com/",
+            ],
+            "empty <url></url> entries must be dropped"
+        );
+
+        // Yanya has no <urls> block — urls is empty.
+        let yanya = &artists[1];
+        assert!(yanya.urls.is_empty());
     }
 
     #[test]
