@@ -15,6 +15,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 
 use crate::label_model::*;
+use crate::parser::{resolve_general_ref, unescape_attr, unescape_text};
 
 /// Parse labels from an XML file (plain or gzipped).
 ///
@@ -102,7 +103,7 @@ fn parse_label_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Re
                         for attr in e.attributes() {
                             let attr = attr?;
                             if attr.key.as_ref() == b"id" {
-                                let val = attr.unescape_value()?;
+                                let val = unescape_attr(&attr)?;
                                 label.parent_id = Some(val.parse().unwrap_or(0));
                             }
                         }
@@ -111,7 +112,10 @@ fn parse_label_body<R: BufRead>(reader: &mut Reader<R>, buf: &mut Vec<u8>) -> Re
                 }
             }
             Ok(Event::Text(ref e)) => {
-                current_text.push_str(&e.unescape()?);
+                current_text.push_str(&unescape_text(e)?);
+            }
+            Ok(Event::GeneralRef(ref e)) => {
+                current_text.push_str(&resolve_general_ref(e)?);
             }
             Ok(Event::CData(ref e)) => {
                 current_text.push_str(&String::from_utf8_lossy(e.as_ref()));

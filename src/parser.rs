@@ -15,6 +15,55 @@ use quick_xml::Reader;
 
 use crate::model::*;
 
+/// Decode and entity-unescape the text content of a `Text` event.
+///
+/// quick-xml 0.40 removed `BytesText::unescape()` (which decoded the raw bytes
+/// to a string and then resolved the five predefined XML entities). The reader
+/// no longer unescapes `Text` events, and `BytesText::decode()` only decodes
+/// bytes -> `str` (it does *not* resolve entities, nor does it normalize EOLs).
+/// We therefore reproduce the exact prior behavior here: decode, then run the
+/// free `quick_xml::escape::unescape()` (which resolves the predefined entities
+/// via `resolve_predefined_entity`, identical to the resolver the old
+/// `unescape()` used). We deliberately avoid `xml10_content()`/`xml_content()`,
+/// which would add XML EOL normalization that the old `unescape()` never did.
+pub(crate) fn unescape_text(e: &quick_xml::events::BytesText<'_>) -> Result<String> {
+    let decoded = e.decode()?;
+    Ok(quick_xml::escape::unescape(&decoded)?.into_owned())
+}
+
+/// Resolve an `Event::GeneralRef` (entity or character reference) to its text.
+///
+/// quick-xml 0.40 stopped folding entity references into the surrounding `Text`
+/// event. A run like `Duke Ellington &amp; John Coltrane` now arrives as three
+/// events: `Text("Duke Ellington ")`, `GeneralRef("amp")`, `Text(" John
+/// Coltrane")`. Under quick-xml 0.37 the same input produced a single already-
+/// unescaped `Text("Duke Ellington & John Coltrane")`. To stay byte-identical we
+/// must resolve each `GeneralRef` and append it to the accumulated text. The
+/// reference content is the bytes between `&` and `;` (e.g. `amp` or `#38`); we
+/// re-wrap it as `&{name};` and reuse the same `quick_xml::escape::unescape()`
+/// primitive, which resolves both predefined named entities and numeric
+/// character references exactly as the old `unescape()` resolver did.
+pub(crate) fn resolve_general_ref(e: &quick_xml::events::BytesRef<'_>) -> Result<String> {
+    let name = e.decode()?;
+    Ok(quick_xml::escape::unescape(&format!("&{name};"))?.into_owned())
+}
+
+/// Decode and entity-unescape an attribute value.
+///
+/// quick-xml 0.40 deprecated `Attribute::unescape_value()` in favor of
+/// `normalized_value()`, but `normalized_value()` (and, in 0.40, the deprecated
+/// `unescape_value()` too) applies XML attribute-value whitespace normalization:
+/// it collapses `\t`, `\r`, `\n`, and `\r\n` into single U+0020 spaces. The old
+/// `unescape_value()` did *not* do that -- it only decoded UTF-8 and resolved
+/// the predefined entities. Adopting normalization would silently alter Discogs
+/// attribute values (`name`, `catno`, `uri`, ...) that contain embedded
+/// whitespace. We reproduce the exact prior, non-normalizing behavior: decode
+/// the raw bytes as UTF-8, then `quick_xml::escape::unescape()`.
+pub(crate) fn unescape_attr(attr: &quick_xml::events::attributes::Attribute<'_>) -> Result<String> {
+    let decoded = std::str::from_utf8(&attr.value)?;
+    Ok(quick_xml::escape::unescape(decoded)?.into_owned())
+}
+
 /// Extract `id` and `status` attributes from a `<release>` start tag.
 fn extract_release_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<(u64, String)> {
     let mut id: u64 = 0;
@@ -23,11 +72,11 @@ fn extract_release_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<(u64, 
         let attr = attr?;
         match attr.key.as_ref() {
             b"id" => {
-                let val = attr.unescape_value()?;
+                let val = unescape_attr(&attr)?;
                 id = val.parse().unwrap_or(0);
             }
             b"status" => {
-                status = attr.unescape_value()?.to_string();
+                status = unescape_attr(&attr)?;
             }
             _ => {}
         }
@@ -279,8 +328,8 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"name" => label.name = attr.unescape_value()?.to_string(),
-                                b"catno" => label.catno = attr.unescape_value()?.to_string(),
+                                b"name" => label.name = unescape_attr(&attr)?,
+                                b"catno" => label.catno = unescape_attr(&attr)?,
                                 _ => {}
                             }
                         }
@@ -291,9 +340,9 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"name" => format.name = attr.unescape_value()?.to_string(),
+                                b"name" => format.name = unescape_attr(&attr)?,
                                 b"qty" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     format.qty = val.parse().unwrap_or(1);
                                 }
                                 _ => {}
@@ -306,16 +355,16 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"type" => image.image_type = attr.unescape_value()?.to_string(),
+                                b"type" => image.image_type = unescape_attr(&attr)?,
                                 b"width" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     image.width = val.parse().unwrap_or(0);
                                 }
                                 b"height" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     image.height = val.parse().unwrap_or(0);
                                 }
-                                b"uri" => image.uri = attr.unescape_value()?.to_string(),
+                                b"uri" => image.uri = unescape_attr(&attr)?,
                                 _ => {}
                             }
                         }
@@ -346,16 +395,13 @@ fn parse_release_body<R: BufRead>(
                             for attr in e.attributes() {
                                 let attr = attr?;
                                 match attr.key.as_ref() {
-                                    b"src" => {
-                                        current_video.src = attr.unescape_value()?.to_string()
-                                    }
+                                    b"src" => current_video.src = unescape_attr(&attr)?,
                                     b"duration" => {
-                                        let val = attr.unescape_value()?;
+                                        let val = unescape_attr(&attr)?;
                                         current_video.duration = val.parse().ok();
                                     }
                                     b"embed" => {
-                                        current_video.embed =
-                                            attr.unescape_value()?.as_ref() != "false";
+                                        current_video.embed = unescape_attr(&attr)? != "false";
                                     }
                                     _ => {}
                                 }
@@ -374,8 +420,8 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"name" => label.name = attr.unescape_value()?.to_string(),
-                                b"catno" => label.catno = attr.unescape_value()?.to_string(),
+                                b"name" => label.name = unescape_attr(&attr)?,
+                                b"catno" => label.catno = unescape_attr(&attr)?,
                                 _ => {}
                             }
                         }
@@ -386,9 +432,9 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"name" => format.name = attr.unescape_value()?.to_string(),
+                                b"name" => format.name = unescape_attr(&attr)?,
                                 b"qty" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     format.qty = val.parse().unwrap_or(1);
                                 }
                                 _ => {}
@@ -401,16 +447,16 @@ fn parse_release_body<R: BufRead>(
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
-                                b"type" => image.image_type = attr.unescape_value()?.to_string(),
+                                b"type" => image.image_type = unescape_attr(&attr)?,
                                 b"width" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     image.width = val.parse().unwrap_or(0);
                                 }
                                 b"height" => {
-                                    let val = attr.unescape_value()?;
+                                    let val = unescape_attr(&attr)?;
                                     image.height = val.parse().unwrap_or(0);
                                 }
-                                b"uri" => image.uri = attr.unescape_value()?.to_string(),
+                                b"uri" => image.uri = unescape_attr(&attr)?,
                                 _ => {}
                             }
                         }
@@ -422,13 +468,13 @@ fn parse_release_body<R: BufRead>(
                             for attr in e.attributes() {
                                 let attr = attr?;
                                 match attr.key.as_ref() {
-                                    b"src" => video.src = attr.unescape_value()?.to_string(),
+                                    b"src" => video.src = unescape_attr(&attr)?,
                                     b"duration" => {
-                                        let val = attr.unescape_value()?;
+                                        let val = unescape_attr(&attr)?;
                                         video.duration = val.parse().ok();
                                     }
                                     b"embed" => {
-                                        video.embed = attr.unescape_value()?.as_ref() != "false";
+                                        video.embed = unescape_attr(&attr)? != "false";
                                     }
                                     _ => {}
                                 }
@@ -440,7 +486,10 @@ fn parse_release_body<R: BufRead>(
                 }
             }
             Ok(Event::Text(ref e)) => {
-                current_text.push_str(&e.unescape()?);
+                current_text.push_str(&unescape_text(e)?);
+            }
+            Ok(Event::GeneralRef(ref e)) => {
+                current_text.push_str(&resolve_general_ref(e)?);
             }
             Ok(Event::CData(ref e)) => {
                 current_text.push_str(&String::from_utf8_lossy(e.as_ref()));

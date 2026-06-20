@@ -137,3 +137,73 @@ fn corpus_xml_title_roundtrip() {
     }
     assert!(report.is_empty(), "{report}");
 }
+
+/// Entity-unescaping parity guard for the quick-xml 0.40 migration.
+///
+/// The vendored charset-torture corpus exercises Unicode/encoding round-trips
+/// but contains no XML entity references (`&amp;`, `&lt;`, ...), so it cannot
+/// catch a decode/unescape regression. quick-xml 0.40 removed
+/// `BytesText::unescape()` and changed `Attribute::unescape_value()` to apply
+/// attribute-value whitespace normalization; getting the replacement wrong
+/// would either leave `&amp;` unresolved, double-unescape (`&amp;lt;` -> `<`),
+/// or silently collapse whitespace. This test pins the exact decoded output for
+/// the five predefined entities and a numeric character reference, in both text
+/// content (`<title>`, `<notes>`) and an attribute value (`<format name=...>`).
+#[test]
+fn entity_references_decode_exactly_once() {
+    // Raw XML with pre-escaped entities placed verbatim (NOT via xml_escape):
+    // - title: predefined entities `& < > " '`
+    // - notes: a numeric character reference for `&` (`&#38;`) plus a predefined one
+    // - format name attribute: `&amp;` and `&lt;`
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<release id="42" status="Accepted">
+  <artists><artist><id>1</id><name>Test</name><anv></anv><join></join><role></role><tracks></tracks></artist></artists>
+  <title>Sun &amp; Steel &lt;mix&gt; &quot;live&quot; o&apos;clock</title>
+  <country></country>
+  <released></released>
+  <notes>R&#38;B &amp; soul</notes>
+  <data_quality></data_quality>
+  <formats><format name="7&quot; &amp; 12&quot; &lt;reissue&gt;" qty="1"></format></formats>
+  <labels><label name="L" catno="C"/></labels>
+  <genres></genres>
+  <styles></styles>
+  <tracklist></tracklist>
+  <identifiers></identifiers>
+  <videos></videos>
+  <companies></companies>
+  <extraartists></extraartists>
+</release>"#;
+
+    let release = parse_release_from_bytes(xml.as_bytes()).expect("parses");
+
+    // Text content: each entity resolved to its single literal character, once.
+    assert_eq!(release.title, r#"Sun & Steel <mix> "live" o'clock"#);
+    // Numeric character reference + predefined entity both resolve.
+    assert_eq!(release.notes, "R&B & soul");
+    // Attribute value: predefined entities resolved, no whitespace normalization.
+    assert_eq!(release.formats.len(), 1);
+    assert_eq!(release.formats[0].name, r#"7" & 12" <reissue>"#);
+}
+
+/// Guards the non-normalizing attribute path: the old `unescape_value()` did
+/// NOT collapse embedded tabs/newlines, but 0.40's `normalized_value()` (and its
+/// deprecated `unescape_value()` shim) would. A tab/newline inside an attribute
+/// value must survive verbatim.
+#[test]
+fn attribute_whitespace_is_not_normalized() {
+    // Literal TAB and LF embedded directly in the format name attribute.
+    let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<release id=\"7\" status=\"Accepted\">\n\
+  <artists><artist><id>1</id><name>Test</name><anv></anv><join></join><role></role><tracks></tracks></artist></artists>\n\
+  <title>t</title>\n\
+  <country></country><released></released><notes></notes><data_quality></data_quality>\n\
+  <formats><format name=\"a&#9;b&#10;c\" qty=\"1\"></format></formats>\n\
+  <labels></labels><genres></genres><styles></styles><tracklist></tracklist>\n\
+  <identifiers></identifiers><videos></videos><companies></companies><extraartists></extraartists>\n\
+</release>";
+
+    let release = parse_release_from_bytes(xml.as_bytes()).expect("parses");
+    assert_eq!(release.formats.len(), 1);
+    // TAB (U+0009) and LF (U+000A) preserved verbatim, NOT collapsed to spaces.
+    assert_eq!(release.formats[0].name, "a\tb\nc");
+}
