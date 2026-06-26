@@ -61,6 +61,12 @@ pub struct ReleaseArtist {
     pub anv: String,
     pub join_field: String,
     pub position: u32,
+    /// Discogs `<role>` element value for release-level `<extraartists>`
+    /// children (e.g. "Producer", "Mixed By", "Written-By"). Always empty
+    /// for `<artists>` (main-artist) entries. Mirrors `TrackArtist.role`;
+    /// added so release-level credits reach `release_artist.role` for the
+    /// release-level composer fallback (WXYC/library-metadata-lookup#699).
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Default)]

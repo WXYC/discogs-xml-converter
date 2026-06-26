@@ -57,6 +57,12 @@ impl CsvOutput {
             ),
             CsvFileSpec::new(
                 "release_artist.csv",
+                // `role` (the source `<role>` element on release-level
+                // `<extraartists>`, e.g. "Written-By"/"Producer") added so
+                // release-level credits reach `release_artist.role`. Empty
+                // for main `<artists>` (extra=0). The downstream loader reads
+                // it via `optional_csv_columns` and tolerates its absence in
+                // older CSVs. Mirrors the `release_track_artist.csv` columns.
                 &[
                     "release_id",
                     "artist_id",
@@ -65,6 +71,7 @@ impl CsvOutput {
                     "anv",
                     "position",
                     "join_field",
+                    "role",
                 ],
             ),
             CsvFileSpec::new("release_label.csv", &["release_id", "label", "catno"]),
@@ -160,6 +167,8 @@ impl CsvOutput {
                 &artist.anv,
                 &position_str,
                 &artist.join_field,
+                // Main artists carry no <role>; always empty here.
+                &artist.role,
             ])?;
         }
 
@@ -177,6 +186,10 @@ impl CsvOutput {
                 &artist.anv,
                 &position_str,
                 &artist.join_field,
+                // Source-side `<role>` verbatim; empty when the XML omits it.
+                // The CSV path emits "" (the PG path emits `\N`); the loader
+                // coerces empty→NULL for parity (WXYC/discogs-etl#221).
+                &artist.role,
             ])?;
         }
 
@@ -352,6 +365,7 @@ mod tests {
                 anv: "".to_string(),
                 join_field: "".to_string(),
                 position: 1,
+                role: "".to_string(),
             }],
             extra_artists: vec![ReleaseArtist {
                 artist_id: 12,
@@ -359,6 +373,7 @@ mod tests {
                 anv: "".to_string(),
                 join_field: "".to_string(),
                 position: 2,
+                role: "Producer".to_string(),
             }],
             labels: vec![
                 ReleaseLabel {
@@ -463,6 +478,7 @@ mod tests {
                 "anv",
                 "position",
                 "join_field",
+                "role",
             ],
         );
         check_header("release_label.csv", &["release_id", "label", "catno"]);
@@ -520,8 +536,10 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(&records[0][2], "Autechre");
         assert_eq!(&records[0][3], "0"); // extra=0
+        assert_eq!(&records[0][7], ""); // main artist: no <role>
         assert_eq!(&records[1][2], "Some Producer");
         assert_eq!(&records[1][3], "1"); // extra=1
+        assert_eq!(&records[1][7], "Producer"); // extra artist: source <role>
 
         // Check tracks
         let mut rdr = csv::Reader::from_path(dir.path().join("release_track.csv")).unwrap();

@@ -100,7 +100,8 @@ fn set_up_schema(client: &mut postgres::Client) {
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
                  artist_id integer,
                  artist_name text NOT NULL,
-                 extra integer DEFAULT 0
+                 extra integer DEFAULT 0,
+                 role text
              );
              CREATE TABLE release_label (
                  release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,

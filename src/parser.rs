@@ -681,13 +681,17 @@ fn parse_release_body<R: BufRead>(
                         }
                     }
                     b"role" => {
-                        // Capture <role> only inside track-level <extraartists>.
-                        // Main <artists> entries have no role. Release-level
-                        // extraartists carry the role on `current_artist`
-                        // (ReleaseArtist) which we don't emit here.
-                        // See WXYC/discogs-etl#218.
+                        // Capture <role> inside <extraartists> at both scopes.
+                        // Main <artists> entries have no <role>. Track-level
+                        // extraartists carry it on `current_track_artist`
+                        // (→ release_track_artist.role, #218); release-level
+                        // extraartists carry it on `current_artist`
+                        // (→ release_artist.role, for the release-level
+                        // composer fallback, WXYC/library-metadata-lookup#699).
                         if in_track_extraartists {
                             current_track_artist.role = current_text.clone();
+                        } else if in_extraartists {
+                            current_artist.role = current_text.clone();
                         }
                     }
                     _ => {}
@@ -1308,12 +1312,71 @@ mod tests {
         // Release-level extra artist preserved as before
         assert_eq!(release.extra_artists.len(), 1);
         assert_eq!(release.extra_artists[0].name, "Some Producer");
+        // The release-level <role> lands on the ReleaseArtist (not the track).
+        assert_eq!(release.extra_artists[0].role, "Producer");
 
         // Track has no artists/extra_artists; importantly nothing was
         // accidentally populated by the release-level <role>.
         assert_eq!(release.tracks.len(), 1);
         assert_eq!(release.tracks[0].artists.len(), 0);
         assert_eq!(release.tracks[0].extra_artists.len(), 0);
+    }
+
+    /// Release-level `<extraartists>` `<role>` must be captured onto the
+    /// `ReleaseArtist` so release-level writer/composer credits reach
+    /// `release_artist.role` (WXYC/library-metadata-lookup#699). Main
+    /// `<artists>` entries carry no role; an empty `<role></role>` yields "".
+    #[test]
+    fn test_parse_release_extra_artists_with_role() {
+        let xml = br#"<release id="1001" status="Accepted">
+    <title>Test</title>
+    <artists>
+      <artist><id>1</id><name>Main Artist</name><anv></anv><join></join></artist>
+    </artists>
+    <extraartists>
+      <artist>
+        <id>2</id>
+        <name>Some Writer</name>
+        <anv></anv>
+        <join></join>
+        <role>Written-By</role>
+      </artist>
+      <artist>
+        <id>3</id>
+        <name>Some Producer</name>
+        <anv></anv>
+        <join></join>
+        <role>Producer</role>
+      </artist>
+      <artist>
+        <id>4</id>
+        <name>Roleless Credit</name>
+        <anv></anv>
+        <join></join>
+        <role></role>
+      </artist>
+    </extraartists>
+    <tracklist>
+      <track>
+        <position>1</position>
+        <title>Solo Track</title>
+        <duration>3:00</duration>
+      </track>
+    </tracklist>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.extra_artists.len(), 3);
+        assert_eq!(release.extra_artists[0].name, "Some Writer");
+        assert_eq!(release.extra_artists[0].role, "Written-By");
+        assert_eq!(release.extra_artists[1].name, "Some Producer");
+        assert_eq!(release.extra_artists[1].role, "Producer");
+        // Empty <role></role> → empty string, NOT a panic / leaked prior value.
+        assert_eq!(release.extra_artists[2].name, "Roleless Credit");
+        assert_eq!(release.extra_artists[2].role, "");
+        // Main <artists> entries never carry a role.
+        assert_eq!(release.artists[0].name, "Main Artist");
+        assert_eq!(release.artists[0].role, "");
     }
 
     /// WXYC/discogs-xml-converter#58: a `<track>` containing `<sub_tracks>`

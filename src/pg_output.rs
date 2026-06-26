@@ -62,7 +62,11 @@ impl PgOutput {
                 ),
                 (
                     "release_artist",
-                    "COPY release_artist (release_id, artist_id, artist_name, extra) FROM STDIN",
+                    // `role` added so release-level extra credits
+                    // (writer/composer/producer) carry the source `<role>`
+                    // string; main artists (extra=0) write `\N`. Mirrors
+                    // `release_track_artist`. See WXYC/library-metadata-lookup#699.
+                    "COPY release_artist (release_id, artist_id, artist_name, extra, role) FROM STDIN",
                 ),
                 (
                     "release_label",
@@ -165,7 +169,8 @@ impl ReleaseOutput for PgOutput {
             write_copy_int(buf, artist.artist_id);
             buf.push(b'\t');
             escape_copy_text_into(buf, &artist.name);
-            buf.extend_from_slice(b"\t0\n");
+            // Main artists carry no <role>; extra=0, role NULL.
+            buf.extend_from_slice(b"\t0\t\\N\n");
         }
 
         // release_artist rows (extra artists, extra=1)
@@ -185,7 +190,16 @@ impl ReleaseOutput for PgOutput {
             write_copy_int(buf, artist.artist_id);
             buf.push(b'\t');
             escape_copy_text_into(buf, &artist.name);
-            buf.extend_from_slice(b"\t1\n");
+            buf.extend_from_slice(b"\t1\t");
+            // Source-side `<role>` (e.g. "Written-By"); `\N` when the XML
+            // omits/empties it. The CSV path (writer.rs) emits "" for the
+            // same case; the loader coerces empty→NULL for parity (#221).
+            if artist.role.is_empty() {
+                buf.extend_from_slice(b"\\N");
+            } else {
+                escape_copy_text_into(buf, &artist.role);
+            }
+            buf.push(b'\n');
         }
 
         // release_label rows (release_id, label_name, catno)
@@ -811,7 +825,8 @@ mod tests {
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
                     artist_id integer,
                     artist_name text NOT NULL,
-                    extra integer DEFAULT 0
+                    extra integer DEFAULT 0,
+                    role text
                 );
                 CREATE TABLE release_label (
                     release_id integer NOT NULL REFERENCES release(id) ON DELETE CASCADE,
@@ -886,6 +901,7 @@ mod tests {
                 anv: "".to_string(),
                 join_field: "".to_string(),
                 position: 1,
+                role: "".to_string(),
             }],
             extra_artists: vec![],
             labels: vec![ReleaseLabel {
@@ -959,13 +975,15 @@ mod tests {
         // Verify release_artist
         let rows = client
             .query(
-                "SELECT release_id, artist_id, artist_name, extra FROM release_artist",
+                "SELECT release_id, artist_id, artist_name, extra, role FROM release_artist",
                 &[],
             )
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].get::<_, &str>(2), "Autechre");
         assert_eq!(rows[0].get::<_, Option<i32>>(3), Some(0));
+        // Main artist carries no role.
+        assert_eq!(rows[0].get::<_, Option<&str>>(4), None);
 
         // Verify release_label (includes catno)
         let rows = client
@@ -1220,6 +1238,76 @@ mod tests {
         assert_eq!(rows[1].get::<_, &str>(0), "Alex Paterson");
         assert_eq!(rows[1].get::<_, Option<i32>>(1), Some(1));
         assert_eq!(rows[1].get::<_, Option<&str>>(2), Some("Producer"));
+    }
+
+    #[test]
+    fn test_pg_output_release_extra_artist_role() {
+        let db_url = match test_db_url() {
+            Some(url) => url,
+            None => return,
+        };
+
+        let mut setup_client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+        set_up_test_schema(&mut setup_client);
+        drop(setup_client);
+
+        let mut output = PgOutput::new(&db_url, 10000).unwrap();
+
+        // Release-level <extraartists>: a writer credit (role preserved) and a
+        // roleless credit (empty <role> → NULL). Main <artists> carry no role.
+        // This is the release-level analogue of the per-track credit round-trip
+        // and the data the release-level composer fallback reads
+        // (WXYC/library-metadata-lookup#699).
+        let release = crate::model::Release {
+            id: 9100,
+            title: "Songbook".to_string(),
+            artists: vec![crate::model::ReleaseArtist {
+                artist_id: 10,
+                name: "Main Performer".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            extra_artists: vec![
+                crate::model::ReleaseArtist {
+                    artist_id: 20,
+                    name: "Jane Writer".to_string(),
+                    position: 1,
+                    role: "Written-By".to_string(),
+                    ..Default::default()
+                },
+                crate::model::ReleaseArtist {
+                    artist_id: 30,
+                    name: "Roleless Credit".to_string(),
+                    position: 2,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        output.write_release(&release).unwrap();
+        output.finish().unwrap();
+
+        let mut client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+        let rows = client
+            .query(
+                "SELECT artist_name, extra, role FROM release_artist
+                 WHERE release_id = 9100 ORDER BY extra, artist_name",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        // Main artist: extra=0, role NULL.
+        assert_eq!(rows[0].get::<_, &str>(0), "Main Performer");
+        assert_eq!(rows[0].get::<_, Option<i32>>(1), Some(0));
+        assert_eq!(rows[0].get::<_, Option<&str>>(2), None);
+        // Writer credit: extra=1, source <role> preserved.
+        assert_eq!(rows[1].get::<_, &str>(0), "Jane Writer");
+        assert_eq!(rows[1].get::<_, Option<i32>>(1), Some(1));
+        assert_eq!(rows[1].get::<_, Option<&str>>(2), Some("Written-By"));
+        // Roleless extra credit: extra=1, empty <role> → NULL.
+        assert_eq!(rows[2].get::<_, &str>(0), "Roleless Credit");
+        assert_eq!(rows[2].get::<_, Option<i32>>(1), Some(1));
+        assert_eq!(rows[2].get::<_, Option<&str>>(2), None);
     }
 
     #[test]
