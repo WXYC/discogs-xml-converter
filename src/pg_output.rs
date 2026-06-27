@@ -13,8 +13,8 @@ use std::io::Write;
 use anyhow::{Context, Result};
 use log::info;
 use wxyc_etl::pg::{
-    escape_copy_text_into, extract_year, pick_artwork_url, write_copy_int, ArtistDedup,
-    BatchCopier, DedupSet, LabelDedup,
+    escape_copy_text_into, extract_year, pick_artwork_url, write_copy_int, BatchCopier, DedupSet,
+    LabelDedup,
 };
 
 use crate::model::Release;
@@ -26,6 +26,15 @@ use crate::output::ReleaseOutput;
 /// track (e.g. a self-producing artist) keeps both rows. The narrow
 /// `wxyc_etl::pg::TrackArtistDedup` alias would silently collapse them.
 type WideTrackArtistDedup = DedupSet<(u64, u32, String, bool)>;
+
+/// Release-artist dedup key widened from `(release_id, name)` to
+/// `(release_id, name, extra)` so that a person credited as both the main
+/// performer and a release-level `<extraartists>` role (e.g. a singer-
+/// songwriter who is also "Written-By") keeps both rows. The narrow
+/// `wxyc_etl::pg::ArtistDedup` alias would silently collapse them, dropping
+/// the role-bearing extra row the release-level composer fallback reads
+/// (WXYC/library-metadata-lookup#699). Mirrors `WideTrackArtistDedup`.
+type WideArtistDedup = DedupSet<(u64, String, bool)>;
 
 /// Accumulated artwork URLs for post-import UPDATE.
 pub type ArtworkMap = HashMap<u64, String>;
@@ -41,7 +50,7 @@ pub type TrackCountMap = HashMap<u64, u32>;
 pub struct PgOutput {
     client: postgres::Client,
     copier: BatchCopier,
-    artist_dedup: ArtistDedup,
+    artist_dedup: WideArtistDedup,
     label_dedup: LabelDedup,
     track_artist_dedup: WideTrackArtistDedup,
     artwork: ArtworkMap,
@@ -106,7 +115,7 @@ impl PgOutput {
         Ok(Self {
             client,
             copier,
-            artist_dedup: ArtistDedup::new(),
+            artist_dedup: WideArtistDedup::new(),
             label_dedup: LabelDedup::new(),
             track_artist_dedup: WideTrackArtistDedup::new(),
             artwork: HashMap::new(),
@@ -159,7 +168,7 @@ impl ReleaseOutput for PgOutput {
             }
             if !self
                 .artist_dedup
-                .insert((release.id, artist.name.to_string()))
+                .insert((release.id, artist.name.to_string(), false))
             {
                 continue;
             }
@@ -180,7 +189,7 @@ impl ReleaseOutput for PgOutput {
             }
             if !self
                 .artist_dedup
-                .insert((release.id, artist.name.to_string()))
+                .insert((release.id, artist.name.to_string(), true))
             {
                 continue;
             }
@@ -478,7 +487,7 @@ impl ReleaseOutput for PgOutput {
 #[cfg(test)]
 mod tests {
     use wxyc_etl::pg::{
-        copy_line, empty_to_none, escape_copy_text, write_copy_row, TrackArtistDedup,
+        copy_line, empty_to_none, escape_copy_text, write_copy_row, ArtistDedup, TrackArtistDedup,
     };
 
     // -- extract_year tests (now delegating to wxyc_etl) --
@@ -1308,6 +1317,66 @@ mod tests {
         assert_eq!(rows[2].get::<_, &str>(0), "Roleless Credit");
         assert_eq!(rows[2].get::<_, Option<i32>>(1), Some(1));
         assert_eq!(rows[2].get::<_, Option<&str>>(2), None);
+    }
+
+    #[test]
+    fn test_pg_output_release_artist_main_and_extra_same_name_preserved() {
+        let db_url = match test_db_url() {
+            Some(url) => url,
+            None => return,
+        };
+
+        let mut setup_client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+        set_up_test_schema(&mut setup_client);
+        drop(setup_client);
+
+        let mut output = PgOutput::new(&db_url, 10000).unwrap();
+
+        // A singer-songwriter credited as both the main performer AND a
+        // release-level <extraartists> "Written-By" credit. Both rows must
+        // survive: the narrow (release_id, name) dedup key collapsed them to
+        // one, silently dropping the role-bearing extra row that the
+        // release-level composer fallback reads (WXYC/library-metadata-lookup#699).
+        let release = crate::model::Release {
+            id: 9200,
+            title: "Self-Penned".to_string(),
+            artists: vec![crate::model::ReleaseArtist {
+                artist_id: 10,
+                name: "Jessica Pratt".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            extra_artists: vec![crate::model::ReleaseArtist {
+                artist_id: 10,
+                name: "Jessica Pratt".to_string(),
+                position: 1,
+                role: "Written-By".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        output.write_release(&release).unwrap();
+        output.finish().unwrap();
+
+        let mut client = postgres::Client::connect(&db_url, postgres::NoTls).unwrap();
+
+        // Both rows survive: main (extra=0, role NULL) and writer
+        // (extra=1, role='Written-By'). The pre-fix dedup key collapsed
+        // these to one row, losing the writer credit.
+        let rows = client
+            .query(
+                "SELECT artist_name, extra, role FROM release_artist
+                 WHERE release_id = 9200 ORDER BY extra",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 2, "main and extra credits should both be kept");
+        assert_eq!(rows[0].get::<_, &str>(0), "Jessica Pratt");
+        assert_eq!(rows[0].get::<_, Option<i32>>(1), Some(0));
+        assert_eq!(rows[0].get::<_, Option<&str>>(2), None);
+        assert_eq!(rows[1].get::<_, &str>(0), "Jessica Pratt");
+        assert_eq!(rows[1].get::<_, Option<i32>>(1), Some(1));
+        assert_eq!(rows[1].get::<_, Option<&str>>(2), Some("Written-By"));
     }
 
     #[test]
