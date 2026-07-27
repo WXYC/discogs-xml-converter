@@ -1311,6 +1311,66 @@ mod tests {
     }
 
     #[test]
+    fn test_decide_keep_via_allowlist_rescues_non_matching_release_pairs_filter() {
+        // Same as test_decide_keep_via_allowlist_rescues_non_matching_release,
+        // but with ReleaseFilter::Pairs (the --library-db mode) instead of
+        // ReleaseFilter::Artists. This is the filter mode rebuild-cache.sh
+        // actually runs in production, per discogs-etl's CLAUDE.md, so it
+        // must be proven independently of the Artists-mode coverage above --
+        // decide_keep is structurally filter-agnostic (it only calls
+        // matches_filter), but nothing enforced that continuing to hold
+        // for the Pairs branch specifically.
+        use rusqlite::Connection;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("library.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE library (\
+                id INTEGER PRIMARY KEY AUTOINCREMENT,\
+                artist TEXT NOT NULL,\
+                title TEXT NOT NULL,\
+                format TEXT\
+             );\
+             INSERT INTO library (artist, title) VALUES ('Autechre', 'Confield');",
+        )
+        .unwrap();
+        drop(conn);
+        let pairs = LibraryPairs::from_db(&db_path).unwrap();
+        let filter = Some(ReleaseFilter::Pairs(pairs));
+
+        let mut keep_ids = std::collections::HashSet::new();
+        keep_ids.insert(42u64);
+
+        // Fails the pair filter (title not in library), but its id is allowlisted.
+        let mut release = make_release(vec![(99, "Unknown Artist")], vec![]);
+        release.id = 42;
+        release.title = "Some Other Album".to_string();
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::KeepViaAllowlist
+        ));
+
+        // Fails the pair filter and isn't allowlisted.
+        let mut release = make_release(vec![(99, "Unknown Artist")], vec![]);
+        release.id = 7;
+        release.title = "Some Other Album".to_string();
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::Drop
+        ));
+
+        // Matches the pair filter outright; allowlist membership is moot.
+        let mut release = make_release(vec![(1, "Autechre")], vec![]);
+        release.id = 999;
+        release.title = "Confield".to_string();
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::Keep
+        ));
+    }
+
+    #[test]
     fn test_decide_keep_no_filter_configured_always_keeps() {
         let keep_ids = std::collections::HashSet::new();
         let release = make_release(vec![(1, "Anyone")], vec![]);
@@ -1375,6 +1435,92 @@ mod tests {
         assert!(
             release_csv.contains("Pinned Override Edition"),
             "allowlisted release failing the filter should be emitted: {release_csv}"
+        );
+        assert!(
+            !release_csv.contains("Unrelated Release"),
+            "release matching neither the filter nor the allowlist should stay filtered: {release_csv}"
+        );
+
+        // The allowlisted release's child rows (tracklist) travel with it.
+        let track_csv = std::fs::read_to_string(output_dir.join("release_track.csv")).unwrap();
+        assert!(
+            track_csv.contains("Some Track"),
+            "allowlisted release's tracklist should be emitted: {track_csv}"
+        );
+    }
+
+    #[test]
+    fn test_keep_release_ids_allowlist_emits_release_that_fails_pairs_filter() {
+        // End-to-end counterpart to
+        // test_keep_release_ids_allowlist_emits_release_that_fails_filter,
+        // but through ReleaseFilter::Pairs (--library-db) -- the filter mode
+        // rebuild-cache.sh runs in production -- instead of
+        // ReleaseFilter::Artists. A release whose (artist, title) pair is
+        // NOT in library.db is normally filtered out, but appears in
+        // --keep-release-ids, so it must be emitted (with its full row set)
+        // anyway. A third release matching neither the filter nor the
+        // allowlist stays dropped.
+        use rusqlite::Connection;
+
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <release id="1" status="Accepted">
+    <title>Confield</title>
+    <artists><artist><id>101</id><name>Autechre</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>1</position><title>VI Scose Poise</title><duration>4:37</duration></track></tracklist>
+  </release>
+  <release id="2" status="Accepted">
+    <title>Pinned Override Edition</title>
+    <artists><artist><id>202</id><name>Not In Library</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>A1</position><title>Some Track</title><duration>3:00</duration></track></tracklist>
+  </release>
+  <release id="3" status="Accepted">
+    <title>Unrelated Release</title>
+    <artists><artist><id>303</id><name>Also Not In Library</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>1</position><title>Filler</title><duration>2:00</duration></track></tracklist>
+  </release>
+</releases>"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_path = dir.path().join("releases.xml");
+        std::fs::write(&xml_path, xml).unwrap();
+
+        let db_path = dir.path().join("library.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE library (\
+                id INTEGER PRIMARY KEY AUTOINCREMENT,\
+                artist TEXT NOT NULL,\
+                title TEXT NOT NULL,\
+                format TEXT\
+             );\
+             INSERT INTO library (artist, title) VALUES ('Autechre', 'Confield');",
+        )
+        .unwrap();
+        drop(conn);
+        let pairs = LibraryPairs::from_db(&db_path).unwrap();
+        let filter = Some(ReleaseFilter::Pairs(pairs));
+
+        let keep_ids_path = dir.path().join("keep_release_ids.txt");
+        std::fs::write(&keep_ids_path, "2\n").unwrap();
+        let keep_ids =
+            discogs_xml_converter::keep_release_ids::parse_keep_release_ids(&keep_ids_path)
+                .unwrap();
+
+        let output_dir = dir.path().join("output");
+        let mut output = CsvOutput::new(&output_dir).unwrap();
+
+        process_releases(&xml_path, &mut output, &filter, &keep_ids, None, 100_000).unwrap();
+        output.finish().unwrap();
+
+        let release_csv = std::fs::read_to_string(output_dir.join("release.csv")).unwrap();
+        assert!(
+            release_csv.contains("Confield"),
+            "release matching the pair filter should still be kept: {release_csv}"
+        );
+        assert!(
+            release_csv.contains("Pinned Override Edition"),
+            "allowlisted release failing the pair filter should be emitted: {release_csv}"
         );
         assert!(
             !release_csv.contains("Unrelated Release"),
