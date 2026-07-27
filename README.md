@@ -33,6 +33,13 @@ discogs-xml-converter build releases.xml.gz --data-dir /path/to/filtered/ \
 
 # Limit records for testing
 discogs-xml-converter build releases.xml.gz --data-dir /tmp/test/ --limit 100
+
+# Filter to library artists, but also emit specific pinned release ids that
+# fail that filter (e.g. WXYC library overrides whose credited artist isn't
+# in library_artists.txt)
+discogs-xml-converter build releases.xml.gz --data-dir /path/to/filtered/ \
+  --library-artists library_artists.txt \
+  --keep-release-ids keep_release_ids.txt
 ```
 
 ### `import` — XML to PostgreSQL
@@ -72,6 +79,8 @@ Common to both subcommands:
 |---|---|
 | `--data-dir DIR` | Working directory for CSV outputs (default: `./data`) |
 | `--library-artists FILE` | Filter to releases by artists in this file (one per line) |
+| `--library-db FILE` | Filter to releases by `(artist, title)` pairs in this SQLite `library.db` |
+| `--keep-release-ids FILE` | Allowlist of release ids (one per line) to emit even if they fail the filter above |
 | `--limit N` | Stop after N releases |
 | `--progress-interval N` | Log progress every N releases (default: 100000) |
 
