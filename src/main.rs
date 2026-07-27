@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use wxyc_etl::cli::{resolve_database_url, DatabaseArgs, ImportArgs, ResumableBui
 use discogs_xml_converter::artist_parser::parse_artists;
 use discogs_xml_converter::artist_writer::ArtistCsvOutput;
 use discogs_xml_converter::filter::ArtistFilter;
+use discogs_xml_converter::keep_release_ids::parse_keep_release_ids;
 use discogs_xml_converter::label_parser::parse_labels;
 use discogs_xml_converter::label_writer::LabelCsvOutput;
 use discogs_xml_converter::library_pairs::LibraryPairs;
@@ -104,6 +106,17 @@ struct SharedReleaseArgs {
     /// The pair filter narrows that to ~50K, fitting Railway-sized targets.
     #[arg(long)]
     library_db: Option<PathBuf>,
+
+    /// Path to a release_id allowlist: one Discogs release id per line,
+    /// blank lines and `#`-prefixed comments ignored. Any release whose id
+    /// appears here is emitted (with its full child row set -- tracklist,
+    /// artists, labels, genres, styles) even if it fails the
+    /// `--library-artists` / `--library-db` filter. Compatible with either
+    /// filter mode, or with neither (a no-op filter already keeps
+    /// everything). A missing file is treated as an empty allowlist, not an
+    /// error.
+    #[arg(long)]
+    keep_release_ids: Option<PathBuf>,
 
     /// Maximum number of releases to process.
     #[arg(long)]
@@ -281,10 +294,53 @@ fn process_masters(path: &Path, output_dir: &Path) -> Result<()> {
 enum FilterResult {
     /// Release matches filter (or no filter); should be written.
     Matched(Box<discogs_xml_converter::model::Release>),
+    /// Release failed the configured filter but its id is in the
+    /// `--keep-release-ids` allowlist, so it's written anyway.
+    MatchedViaAllowlist(Box<discogs_xml_converter::model::Release>),
     /// Release was filtered out.
     Filtered,
     /// Release had no artists and was skipped during parsing.
     NoArtists,
+}
+
+/// Outcome of [`decide_keep`]: whether a parsed release should be written,
+/// and whether the `--keep-release-ids` allowlist is why.
+#[derive(Debug, PartialEq, Eq)]
+enum KeepDecision {
+    /// No filter configured, or the release matched the filter normally.
+    Keep,
+    /// Failed the configured filter but is present in the allowlist.
+    KeepViaAllowlist,
+    /// Failed the filter and isn't allowlisted.
+    Drop,
+}
+
+/// Decide whether a parsed release should be written to output.
+///
+/// With no filter configured, every release is kept (status quo). With a
+/// filter configured, a release that matches it is kept normally; one that
+/// doesn't match is still kept -- as `KeepViaAllowlist` -- when its id
+/// appears in `keep_ids`, and dropped otherwise. This is Seam A of
+/// WXYC/discogs-etl#327: `--keep-release-ids` lets a WXYC library-pinned
+/// override reach the CSVs even when its credited artist falls outside the
+/// filter's scope.
+fn decide_keep(
+    filter: &Option<ReleaseFilter>,
+    keep_ids: &HashSet<u64>,
+    release: &discogs_xml_converter::model::Release,
+) -> KeepDecision {
+    match filter {
+        None => KeepDecision::Keep,
+        Some(f) => {
+            if matches_filter(f, release) {
+                KeepDecision::Keep
+            } else if keep_ids.contains(&release.id) {
+                KeepDecision::KeepViaAllowlist
+            } else {
+                KeepDecision::Drop
+            }
+        }
+    }
 }
 
 /// Start the release scanner in a background thread.
@@ -320,11 +376,13 @@ fn consume_releases(
     scanner_handle: std::thread::JoinHandle<Result<usize>>,
     output: &mut impl ReleaseOutput,
     filter: &Option<ReleaseFilter>,
+    keep_ids: &HashSet<u64>,
 ) -> Result<()> {
     let mut written = 0usize;
     let mut filtered = 0usize;
     let mut skipped_no_artists = 0usize;
     let mut duplicate_ids = 0usize;
+    let mut kept_via_allowlist = 0usize;
     let mut seen_ids = std::collections::HashSet::new();
 
     // Run the processing loop, capturing any error so we can drop rx
@@ -347,13 +405,13 @@ fn consume_releases(
                         return FilterResult::NoArtists;
                     }
 
-                    if let Some(f) = filter.as_ref() {
-                        if !matches_filter(f, &release) {
-                            return FilterResult::Filtered;
+                    match decide_keep(filter, keep_ids, &release) {
+                        KeepDecision::Keep => FilterResult::Matched(Box::new(release)),
+                        KeepDecision::KeepViaAllowlist => {
+                            FilterResult::MatchedViaAllowlist(Box::new(release))
                         }
+                        KeepDecision::Drop => FilterResult::Filtered,
                     }
-
-                    FilterResult::Matched(Box::new(release))
                 })
                 .collect();
 
@@ -368,6 +426,16 @@ fn consume_releases(
                         }
                         output.write_release(&release)?;
                         written += 1;
+                    }
+                    FilterResult::MatchedViaAllowlist(release) => {
+                        if !seen_ids.insert(release.id) {
+                            warn!("Skipping duplicate release id={}", release.id);
+                            duplicate_ids += 1;
+                            continue;
+                        }
+                        output.write_release(&release)?;
+                        written += 1;
+                        kept_via_allowlist += 1;
                     }
                     FilterResult::Filtered => filtered += 1,
                     FilterResult::NoArtists => skipped_no_artists += 1,
@@ -396,6 +464,12 @@ fn consume_releases(
         "Complete: {} scanned, {} written, {} filtered, {} skipped (no artists)",
         total, written, filtered, skipped_no_artists
     );
+    if kept_via_allowlist > 0 {
+        msg.push_str(&format!(
+            ", {} kept via --keep-release-ids allowlist",
+            kept_via_allowlist
+        ));
+    }
     if duplicate_ids > 0 {
         msg.push_str(&format!(", {} duplicate ids skipped", duplicate_ids));
     }
@@ -411,12 +485,13 @@ fn process_releases(
     path: &Path,
     output: &mut impl ReleaseOutput,
     filter: &Option<ReleaseFilter>,
+    keep_ids: &HashSet<u64>,
     limit: Option<usize>,
     progress_interval: usize,
 ) -> Result<()> {
     info!("Processing releases XML: {}", path.display());
     let (rx, handle) = start_scanner(path.to_path_buf(), limit, progress_interval);
-    consume_releases(rx, handle, output, filter)
+    consume_releases(rx, handle, output, filter, keep_ids)
 }
 
 /// A batch of release byte ranges from a contiguous buffer.
@@ -656,6 +731,20 @@ fn build_filter(
     Ok(None)
 }
 
+/// Resolve the `--keep-release-ids` allowlist into a `HashSet`.
+///
+/// Absent `--keep-release-ids` (`path` is `None`) and an allowlist file that
+/// doesn't exist on disk both resolve to an empty set -- see
+/// `keep_release_ids::parse_keep_release_ids`. An empty set makes
+/// `decide_keep` behave exactly like the pre-`--keep-release-ids` code path,
+/// so this is what keeps the flag's absence byte-identical to today's output.
+fn load_keep_ids(path: Option<&Path>) -> Result<HashSet<u64>> {
+    match path {
+        Some(path) => parse_keep_release_ids(path),
+        None => Ok(HashSet::new()),
+    }
+}
+
 /// Check if a release matches the configured filter.
 ///
 /// In artist mode, uses alias-enhanced matching (by artist_id) when aliases
@@ -700,6 +789,7 @@ struct RunConfig {
     data_dir: PathBuf,
     library_artists: Option<PathBuf>,
     library_db: Option<PathBuf>,
+    keep_release_ids: Option<PathBuf>,
     limit: Option<usize>,
     progress_interval: usize,
     /// When set, skips per-file root-element auto-detection and treats the
@@ -730,6 +820,7 @@ fn build_config(cmd: BuildCmd) -> RunConfig {
         data_dir,
         library_artists: cmd.shared.library_artists,
         library_db: cmd.shared.library_db,
+        keep_release_ids: cmd.shared.keep_release_ids,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
         xml_type: cmd.shared.xml_type,
@@ -750,6 +841,7 @@ fn import_config(cmd: ImportCmd) -> Result<RunConfig> {
         data_dir,
         library_artists: cmd.shared.library_artists,
         library_db: cmd.shared.library_db,
+        keep_release_ids: cmd.shared.keep_release_ids,
         limit: cmd.shared.limit,
         progress_interval: cmd.shared.progress_interval,
         xml_type: cmd.shared.xml_type,
@@ -819,6 +911,7 @@ fn run_directory(cfg: RunConfig) -> Result<()> {
     }
 
     let filter = build_filter(&cfg, Some(&cfg.data_dir))?;
+    let keep_ids = load_keep_ids(cfg.keep_release_ids.as_deref())?;
 
     if let Some((rx, handle)) = scanner {
         match &cfg.sink {
@@ -827,12 +920,12 @@ fn run_directory(cfg: RunConfig) -> Result<()> {
                 batch_size,
             } => {
                 let mut output = PgOutput::new(database_url, *batch_size)?;
-                consume_releases(rx, handle, &mut output, &filter)?;
+                consume_releases(rx, handle, &mut output, &filter, &keep_ids)?;
                 output.finish()?;
             }
             ReleaseSink::Csv => {
                 let mut output = CsvOutput::new(&cfg.data_dir)?;
-                consume_releases(rx, handle, &mut output, &filter)?;
+                consume_releases(rx, handle, &mut output, &filter, &keep_ids)?;
                 output.finish()?;
             }
         }
@@ -870,6 +963,7 @@ fn run_single_file(cfg: RunConfig) -> Result<()> {
     // Single-file mode has no companion artist_alias.csv to draw from, so
     // alias-enhanced matching is unavailable here.
     let filter = build_filter(&cfg, None)?;
+    let keep_ids = load_keep_ids(cfg.keep_release_ids.as_deref())?;
 
     match &cfg.sink {
         ReleaseSink::Pg {
@@ -881,6 +975,7 @@ fn run_single_file(cfg: RunConfig) -> Result<()> {
                 &cfg.input,
                 &mut output,
                 &filter,
+                &keep_ids,
                 cfg.limit,
                 cfg.progress_interval,
             )?;
@@ -892,6 +987,7 @@ fn run_single_file(cfg: RunConfig) -> Result<()> {
                 &cfg.input,
                 &mut output,
                 &filter,
+                &keep_ids,
                 cfg.limit,
                 cfg.progress_interval,
             )?;
@@ -1178,6 +1274,167 @@ mod tests {
     }
 
     #[test]
+    fn test_decide_keep_via_allowlist_rescues_non_matching_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("artists.txt");
+        std::fs::write(&path, "Autechre\n").unwrap();
+        let filter = Some(ReleaseFilter::Artists(
+            ArtistFilter::from_file(&path).unwrap(),
+        ));
+
+        let mut keep_ids = std::collections::HashSet::new();
+        keep_ids.insert(42u64);
+
+        // Fails the artist filter, but its id is allowlisted.
+        let mut release = make_release(vec![(99, "Unknown Artist")], vec![]);
+        release.id = 42;
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::KeepViaAllowlist
+        ));
+
+        // Fails the artist filter and isn't allowlisted.
+        let mut release = make_release(vec![(99, "Unknown Artist")], vec![]);
+        release.id = 7;
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::Drop
+        ));
+
+        // Matches the artist filter outright; allowlist membership is moot.
+        let mut release = make_release(vec![(1, "Autechre")], vec![]);
+        release.id = 999;
+        assert!(matches!(
+            decide_keep(&filter, &keep_ids, &release),
+            KeepDecision::Keep
+        ));
+    }
+
+    #[test]
+    fn test_decide_keep_no_filter_configured_always_keeps() {
+        let keep_ids = std::collections::HashSet::new();
+        let release = make_release(vec![(1, "Anyone")], vec![]);
+        assert!(matches!(
+            decide_keep(&None, &keep_ids, &release),
+            KeepDecision::Keep
+        ));
+    }
+
+    #[test]
+    fn test_keep_release_ids_allowlist_emits_release_that_fails_filter() {
+        // End-to-end: a release whose artist is NOT in library_artists.txt
+        // is normally filtered out, but appears in --keep-release-ids, so it
+        // must be emitted (with its full row set) anyway. A third release
+        // that matches neither the filter nor the allowlist stays dropped.
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<releases>
+  <release id="1" status="Accepted">
+    <title>DOGA</title>
+    <artists><artist><id>101</id><name>Juana Molina</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>A1</position><title>la paradoja</title><duration>4:12</duration></track></tracklist>
+  </release>
+  <release id="2" status="Accepted">
+    <title>Pinned Override Edition</title>
+    <artists><artist><id>202</id><name>Not In Library</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>A1</position><title>Some Track</title><duration>3:00</duration></track></tracklist>
+  </release>
+  <release id="3" status="Accepted">
+    <title>Unrelated Release</title>
+    <artists><artist><id>303</id><name>Also Not In Library</name><anv></anv><join></join></artist></artists>
+    <tracklist><track><position>1</position><title>Filler</title><duration>2:00</duration></track></tracklist>
+  </release>
+</releases>"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_path = dir.path().join("releases.xml");
+        std::fs::write(&xml_path, xml).unwrap();
+
+        let artists_path = dir.path().join("library_artists.txt");
+        std::fs::write(&artists_path, "Juana Molina\n").unwrap();
+        let filter = Some(ReleaseFilter::Artists(
+            ArtistFilter::from_file(&artists_path).unwrap(),
+        ));
+
+        let keep_ids_path = dir.path().join("keep_release_ids.txt");
+        std::fs::write(&keep_ids_path, "2\n").unwrap();
+        let keep_ids =
+            discogs_xml_converter::keep_release_ids::parse_keep_release_ids(&keep_ids_path)
+                .unwrap();
+
+        let output_dir = dir.path().join("output");
+        let mut output = CsvOutput::new(&output_dir).unwrap();
+
+        process_releases(&xml_path, &mut output, &filter, &keep_ids, None, 100_000).unwrap();
+        output.finish().unwrap();
+
+        let release_csv = std::fs::read_to_string(output_dir.join("release.csv")).unwrap();
+        assert!(
+            release_csv.contains("DOGA"),
+            "release matching the artist filter should still be kept: {release_csv}"
+        );
+        assert!(
+            release_csv.contains("Pinned Override Edition"),
+            "allowlisted release failing the filter should be emitted: {release_csv}"
+        );
+        assert!(
+            !release_csv.contains("Unrelated Release"),
+            "release matching neither the filter nor the allowlist should stay filtered: {release_csv}"
+        );
+
+        // The allowlisted release's child rows (tracklist) travel with it.
+        let track_csv = std::fs::read_to_string(output_dir.join("release_track.csv")).unwrap();
+        assert!(
+            track_csv.contains("Some Track"),
+            "allowlisted release's tracklist should be emitted: {track_csv}"
+        );
+    }
+
+    #[test]
+    fn test_keep_release_ids_absent_flag_is_byte_identical_to_status_quo() {
+        // No --keep-release-ids flag at all (empty set, as build_config /
+        // import_config produce when cfg.keep_release_ids is None) must
+        // behave exactly like the pre-existing filter-only path.
+        let xml_path = fixture_path("releases_fixture.xml");
+
+        let with_empty_keep_ids_dir = tempfile::tempdir().unwrap();
+        let mut output_a =
+            CsvOutput::new(with_empty_keep_ids_dir.path().join("out").as_path()).unwrap();
+        let empty_keep_ids = std::collections::HashSet::new();
+        process_releases(
+            &xml_path,
+            &mut output_a,
+            &None,
+            &empty_keep_ids,
+            None,
+            100_000,
+        )
+        .unwrap();
+        output_a.finish().unwrap();
+
+        let baseline_dir = tempfile::tempdir().unwrap();
+        let mut output_b = CsvOutput::new(baseline_dir.path().join("out").as_path()).unwrap();
+        process_releases(
+            &xml_path,
+            &mut output_b,
+            &None,
+            &empty_keep_ids,
+            None,
+            100_000,
+        )
+        .unwrap();
+        output_b.finish().unwrap();
+
+        for filename in &["release.csv", "release_artist.csv", "release_track.csv"] {
+            let a =
+                std::fs::read_to_string(with_empty_keep_ids_dir.path().join("out").join(filename))
+                    .unwrap();
+            let b =
+                std::fs::read_to_string(baseline_dir.path().join("out").join(filename)).unwrap();
+            assert_eq!(a, b, "mismatch in {filename}");
+        }
+    }
+
+    #[test]
     fn test_duplicate_release_ids_are_skipped() {
         // XML with two releases sharing the same id=1
         let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1207,7 +1464,8 @@ mod tests {
         let mut output = CsvOutput::new(&output_dir).unwrap();
         let filter = None;
 
-        process_releases(&xml_path, &mut output, &filter, None, 100_000).unwrap();
+        let keep_ids = std::collections::HashSet::new();
+        process_releases(&xml_path, &mut output, &filter, &keep_ids, None, 100_000).unwrap();
         output.finish().unwrap();
 
         // Read release.csv and verify only 2 releases (id=1 appears once, id=2 once)

@@ -2,6 +2,7 @@ pub mod artist_model;
 pub mod artist_parser;
 pub mod artist_writer;
 pub mod filter;
+pub mod keep_release_ids;
 pub mod label_model;
 pub mod label_parser;
 pub mod label_writer;
