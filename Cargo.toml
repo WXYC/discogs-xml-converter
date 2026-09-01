@@ -6,7 +6,7 @@ license = "PolyForm-Noncommercial-1.0.0"
 description = "Convert Discogs XML data dumps to CSV, with optional artist filtering"
 
 [dependencies]
-quick-xml = "0.40"
+quick-xml = "0.42"
 csv = "1.3"
 flate2 = "1.0"
 clap = { version = "4", features = ["derive"] }
