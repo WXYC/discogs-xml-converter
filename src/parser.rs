@@ -258,6 +258,14 @@ fn parse_release_body<R: BufRead>(
     let mut track_depth: u32 = 0;
     let mut sub_tracks_stack: Vec<ReleaseTrack> = Vec::new();
 
+    // Format parsing state. `<description>` is not unique to `<format>` —
+    // `<video>` carries one too — so capturing format descriptions is gated
+    // on being inside a `<format>` element rather than on the element name
+    // alone. Set only by the `Event::Start` arm: a self-closing
+    // `<format />` (the `Event::Empty` arm) has no children to capture.
+    // See WXYC/discogs-xml-converter#91.
+    let mut in_format = false;
+
     // Genres, styles, companies parsing state
     let mut in_genres = false;
     let mut in_styles = false;
@@ -349,6 +357,9 @@ fn parse_release_body<R: BufRead>(
                             }
                         }
                         release.formats.push(format);
+                        // Open the window in which `</description>` belongs
+                        // to this format. WXYC/discogs-xml-converter#91.
+                        in_format = true;
                     }
                     b"image" => {
                         let mut image = ReleaseImage::default();
@@ -428,6 +439,11 @@ fn parse_release_body<R: BufRead>(
                         release.labels.push(label);
                     }
                     b"format" => {
+                        // Self-closing `<format />`: no children, so
+                        // `descriptions` stays empty (from `Format::default`)
+                        // and `in_format` is deliberately left alone — the
+                        // window belongs to the `Event::Start` arm only.
+                        // WXYC/discogs-xml-converter#91.
                         let mut format = Format::default();
                         for attr in e.attributes() {
                             let attr = attr?;
@@ -629,6 +645,23 @@ fn parse_release_body<R: BufRead>(
                     }
                     b"styles" => {
                         in_styles = false;
+                    }
+                    // WXYC/discogs-xml-converter#91: `<format>` descriptions
+                    // carry the pressing distinctions (`Reissue`, `7"`,
+                    // `Limited Edition`, ...) that the format `name` alone
+                    // cannot express. Gated on `in_format` because `<video>`
+                    // also has a `<description>` child, and matched on
+                    // `<description>` specifically so a stray `<title>` (or
+                    // any other element) inside `<descriptions>` is ignored.
+                    b"description" => {
+                        if in_format {
+                            if let Some(format) = release.formats.last_mut() {
+                                format.descriptions.push(current_text.clone());
+                            }
+                        }
+                    }
+                    b"format" => {
+                        in_format = false;
                     }
                     b"entity_type_name" => {
                         if in_companies && in_company {
@@ -1060,6 +1093,138 @@ mod tests {
         assert_eq!(release.title, "Real Album Title");
         assert_eq!(release.tracks.len(), 1);
         assert_eq!(release.tracks[0].title, "Track One");
+        // WXYC/discogs-xml-converter#91: capturing `<description>` must not
+        // widen the net to every child of `<descriptions>`. The stray
+        // `<title>` above is not a description.
+        assert_eq!(release.formats.len(), 1);
+        assert_eq!(release.formats[0].descriptions, vec!["Album"]);
+    }
+
+    /// WXYC/discogs-xml-converter#91: a 7" single is `name="Vinyl"` with the
+    /// size carried as a `<description>`. Dropping descriptions made the 7"
+    /// indistinguishable from a 12" LP downstream.
+    #[test]
+    fn test_parse_format_descriptions_seven_inch_single() {
+        let xml = br#"<release id="200" status="Accepted">
+    <title>Seven Inch Single</title>
+    <artists>
+      <artist><id>1</id><name>Jessica Pratt</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="Vinyl" qty="1" text="">
+        <descriptions>
+          <description>7&quot;</description>
+          <description>45 RPM</description>
+          <description>Single</description>
+        </descriptions>
+      </format>
+    </formats>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.formats.len(), 1);
+        assert_eq!(release.formats[0].name, "Vinyl");
+        assert_eq!(
+            release.formats[0].descriptions,
+            vec!["7\"", "45 RPM", "Single"]
+        );
+        assert_eq!(release.format_descriptions_string(), "7\", 45 RPM, Single");
+        assert_eq!(release.title, "Seven Inch Single");
+    }
+
+    /// WXYC/discogs-xml-converter#91: the reissue case the dedup partition
+    /// cannot currently see — an original and a reissue both normalize to
+    /// `Vinyl` with no way to tell them apart.
+    #[test]
+    fn test_parse_format_descriptions_reissue_lp() {
+        let xml = br#"<release id="201" status="Accepted">
+    <title>Reissued Album</title>
+    <artists>
+      <artist><id>2</id><name>Juana Molina</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="Vinyl" qty="2" text="">
+        <descriptions>
+          <description>LP</description>
+          <description>Album</description>
+          <description>Reissue</description>
+        </descriptions>
+      </format>
+    </formats>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.formats.len(), 1);
+        assert_eq!(release.format_string(), "2xVinyl");
+        assert_eq!(
+            release.formats[0].descriptions,
+            vec!["LP", "Album", "Reissue"]
+        );
+        assert_eq!(release.format_descriptions_string(), "LP, Album, Reissue");
+        assert_eq!(release.title, "Reissued Album");
+    }
+
+    /// Self-closing `<format />` (the `Event::Empty` parse arm) carries no
+    /// children, so its descriptions stay empty — and a later format's
+    /// descriptions must not be back-filled onto it.
+    #[test]
+    fn test_parse_format_descriptions_multiple_formats() {
+        let xml = br#"<release id="202" status="Accepted">
+    <title>Deluxe Edition</title>
+    <artists>
+      <artist><id>3</id><name>Stereolab</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="CD" qty="1" text="" />
+      <format name="Vinyl" qty="1" text="">
+        <descriptions>
+          <description>12&quot;</description>
+          <description>Limited Edition</description>
+        </descriptions>
+      </format>
+    </formats>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.formats.len(), 2);
+        assert!(release.formats[0].descriptions.is_empty());
+        assert_eq!(
+            release.formats[1].descriptions,
+            vec!["12\"", "Limited Edition"]
+        );
+        assert_eq!(release.format_string(), "CD, Vinyl");
+        assert_eq!(
+            release.format_descriptions_string(),
+            "12\", Limited Edition"
+        );
+    }
+
+    /// `<description>` is not unique to `<format>` — `<video>` has one too.
+    /// Only the format-scoped ones may reach `Format::descriptions`.
+    #[test]
+    fn test_video_description_does_not_leak_into_format_descriptions() {
+        let xml = br#"<release id="203" status="Accepted">
+    <title>Album With Video</title>
+    <artists>
+      <artist><id>4</id><name>Cat Power</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="CD" qty="1" text="">
+        <descriptions><description>Album</description></descriptions>
+      </format>
+    </formats>
+    <videos>
+      <video src="https://www.youtube.com/watch?v=abc" duration="100" embed="true">
+        <title>Some Video</title>
+        <description>A video blurb, not a format description</description>
+      </video>
+    </videos>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.formats.len(), 1);
+        assert_eq!(release.formats[0].descriptions, vec!["Album"]);
+        assert_eq!(release.format_descriptions_string(), "Album");
     }
 
     #[test]

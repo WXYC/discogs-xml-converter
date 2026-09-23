@@ -903,6 +903,10 @@ mod tests {
             formats: vec![Format {
                 name: "CD".to_string(),
                 qty: 1,
+                // The PG path does not carry a `format` column at all
+                // (see the `COPY release (...)` spec above), so format
+                // descriptions are CSV-only for now.
+                descriptions: vec!["Album".to_string()],
             }],
             artists: vec![ReleaseArtist {
                 artist_id: 1,
