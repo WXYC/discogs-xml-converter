@@ -91,7 +91,13 @@
       <label name="Warp Records" catno="WARPLP128" />
     </labels>
     <formats>
-      <format name="Vinyl" qty="1" text="" />
+      <format name="Vinyl" qty="1" text="">
+        <descriptions>
+          <description>12&quot;</description>
+          <description>33 &#8531; RPM</description>
+          <description>Album</description>
+        </descriptions>
+      </format>
     </formats>
     <tracklist>
       <track>
@@ -173,7 +179,13 @@
       <label name="Bella Union" catno="BELLA483V" />
     </labels>
     <formats>
-      <format name="LP" qty="1" text="" />
+      <format name="LP" qty="1" text="">
+        <descriptions>
+          <description>LP</description>
+          <description>Album</description>
+          <description>Reissue</description>
+        </descriptions>
+      </format>
     </formats>
     <tracklist>
       <track>
@@ -507,7 +519,12 @@
       <label name="Kompakt" catno="KOMPAKT 154" />
     </labels>
     <formats>
-      <format name="LP" qty="1" text="" />
+      <format name="LP" qty="1" text="">
+        <descriptions>
+          <description>LP</description>
+          <description>Album</description>
+        </descriptions>
+      </format>
     </formats>
     <tracklist>
       <track>

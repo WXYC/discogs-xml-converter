@@ -53,6 +53,16 @@ impl CsvOutput {
                     "data_quality",
                     "master_id",
                     "format",
+                    // `format_descriptions` is appended LAST, and must stay
+                    // last: `discogs-etl/scripts/import_csv.py` selects
+                    // columns by header name, but every pre-existing column
+                    // keeps its index so a legacy 9-column release.csv still
+                    // imports unchanged. Flattened with the same ", "
+                    // separator as `format`, carrying the pressing
+                    // distinctions (`Reissue`, `7"`, `Limited Edition`) the
+                    // format name cannot express.
+                    // See WXYC/discogs-xml-converter#91.
+                    "format_descriptions",
                 ],
             ),
             CsvFileSpec::new(
@@ -151,6 +161,7 @@ impl CsvOutput {
             &release.data_quality,
             &master_id_str,
             &release.format_string(),
+            &release.format_descriptions_string(),
         ])?;
 
         // release_artist.csv - main artists (extra=0)
@@ -358,6 +369,7 @@ mod tests {
             formats: vec![Format {
                 name: "CD".to_string(),
                 qty: 1,
+                descriptions: vec!["Album".to_string()],
             }],
             artists: vec![ReleaseArtist {
                 artist_id: 1,
@@ -466,6 +478,11 @@ mod tests {
                 "data_quality",
                 "master_id",
                 "format",
+                // WXYC/discogs-xml-converter#91: appended LAST so every
+                // pre-existing column keeps its index. `import_csv.py`
+                // selects by header name, but positional stability is the
+                // guarantee that lets legacy CSVs keep loading.
+                "format_descriptions",
             ],
         );
         check_header(
@@ -529,6 +546,7 @@ mod tests {
         assert_eq!(&records[0][2], "Confield");
         assert_eq!(&records[0][7], "500");
         assert_eq!(&records[0][8], "CD");
+        assert_eq!(&records[0][9], "Album");
 
         // Check release_artist.csv (1 main + 1 extra = 2)
         let mut rdr = csv::Reader::from_path(dir.path().join("release_artist.csv")).unwrap();
@@ -573,6 +591,133 @@ mod tests {
         assert_eq!(&records[0][2], "The Globe Studios");
         assert_eq!(&records[0][3], "23");
         assert_eq!(&records[0][4], "Recorded At");
+    }
+
+    /// WXYC/discogs-xml-converter#91: round-trip the emitted `release.csv`,
+    /// selecting every column by header name the way
+    /// `discogs-etl/scripts/import_csv.py` does, and pin the positional
+    /// layout so `format_descriptions` can only ever be appended last.
+    #[test]
+    fn test_release_csv_round_trip_format_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = CsvOutput::new(dir.path()).unwrap();
+
+        // A release whose descriptions carry a comma and a double quote —
+        // the two characters that would break a naive flat column.
+        let release = Release {
+            id: 4242,
+            status: "Accepted".to_string(),
+            title: "Pressing Variants".to_string(),
+            country: "US".to_string(),
+            released: "1994".to_string(),
+            data_quality: "Correct".to_string(),
+            master_id: Some(77),
+            formats: vec![
+                Format {
+                    name: "Vinyl".to_string(),
+                    qty: 2,
+                    descriptions: vec![
+                        "12\"".to_string(),
+                        "33 ⅓ RPM, Stereo".to_string(),
+                        "Reissue".to_string(),
+                    ],
+                },
+                Format {
+                    name: "CD".to_string(),
+                    qty: 1,
+                    descriptions: vec!["Album".to_string()],
+                },
+            ],
+            artists: vec![ReleaseArtist {
+                artist_id: 7,
+                name: "Chuquimamani-Condori".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        output.write_release(&release).unwrap();
+        output.flush().unwrap();
+        drop(output);
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+        let headers = rdr.headers().unwrap().clone();
+
+        // Positional guarantee: the pre-existing nine columns keep their
+        // indices and the new column is last.
+        assert_eq!(
+            headers.iter().collect::<Vec<_>>(),
+            vec![
+                "id",
+                "status",
+                "title",
+                "country",
+                "released",
+                "notes",
+                "data_quality",
+                "master_id",
+                "format",
+                "format_descriptions",
+            ]
+        );
+        assert_eq!(
+            headers.len() - 1,
+            headers
+                .iter()
+                .position(|h| h == "format_descriptions")
+                .unwrap()
+        );
+
+        let by_name = |record: &csv::StringRecord, name: &str| -> String {
+            let idx = headers.iter().position(|h| h == name).unwrap();
+            record[idx].to_string()
+        };
+
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(by_name(&records[0], "id"), "4242");
+        assert_eq!(by_name(&records[0], "title"), "Pressing Variants");
+        assert_eq!(by_name(&records[0], "format"), "2xVinyl, CD");
+        assert_eq!(
+            by_name(&records[0], "format_descriptions"),
+            "12\", 33 ⅓ RPM, Stereo, Reissue, Album"
+        );
+    }
+
+    /// A release with no `<descriptions>` writes an empty column rather than
+    /// shifting the row — the one-byte floor the width measurement rests on.
+    #[test]
+    fn test_release_csv_empty_format_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = CsvOutput::new(dir.path()).unwrap();
+
+        let release = Release {
+            id: 4243,
+            status: "Accepted".to_string(),
+            title: "No Descriptions".to_string(),
+            formats: vec![Format {
+                name: "CD".to_string(),
+                qty: 1,
+                descriptions: vec![],
+            }],
+            artists: vec![ReleaseArtist {
+                artist_id: 8,
+                name: "Nilüfer Yanya".to_string(),
+                position: 1,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        output.write_release(&release).unwrap();
+        output.flush().unwrap();
+        drop(output);
+
+        let mut rdr = csv::Reader::from_path(dir.path().join("release.csv")).unwrap();
+        let records: Vec<csv::StringRecord> = rdr.records().map(|r| r.unwrap()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].len(), 10);
+        assert_eq!(&records[0][8], "CD");
+        assert_eq!(&records[0][9], "");
     }
 
     #[test]

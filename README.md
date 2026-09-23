@@ -109,7 +109,7 @@ Produces 6 CSV files:
 
 | File | Key columns |
 |---|---|
-| `release.csv` | id, status, title, country, released, notes, data_quality, master_id, format |
+| `release.csv` | id, status, title, country, released, notes, data_quality, master_id, format, format_descriptions |
 | `release_artist.csv` | release_id, artist_id, artist_name, extra, anv, position, join_field |
 | `release_label.csv` | release_id, label, catno |
 | `release_track.csv` | release_id, sequence, position, title, duration |

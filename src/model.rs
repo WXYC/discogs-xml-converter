@@ -46,12 +46,39 @@ impl Release {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// Build the flattened format-descriptions string.
+    ///
+    /// Discogs records the distinctions that separate one pressing from
+    /// another — `Reissue`, `Repress`, `Remastered`, `Limited Edition`,
+    /// `Album`/`Single`/`EP`/`Compilation`, and the vinyl sizes `7"` / `10"`
+    /// / `12"` — as `<description>` children of `<format>`, not in the
+    /// format `name`. A 7" single is `<format name="Vinyl">` with `7"` as a
+    /// description, so without this the 7" and the 12" LP are the same row.
+    /// See WXYC/discogs-xml-converter#91.
+    ///
+    /// Descriptions from every `<format>` are concatenated in document order
+    /// with the same `", "` separator `format_string()` uses. Duplicates are
+    /// kept: the column answers "does this contain Reissue" / "is this a 7\"",
+    /// and collapsing would misrepresent a multi-format release. The CSV
+    /// writer quotes the field, so embedded separators round-trip intact.
+    pub fn format_descriptions_string(&self) -> String {
+        self.formats
+            .iter()
+            .flat_map(|f| f.descriptions.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Format {
     pub name: String,
     pub qty: u32,
+    /// `<format><descriptions><description>` values, in document order.
+    /// Empty for a self-closing `<format />`, which has no children.
+    pub descriptions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
