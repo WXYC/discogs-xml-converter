@@ -60,8 +60,20 @@ impl Release {
     /// Descriptions from every `<format>` are concatenated in document order
     /// with the same `", "` separator `format_string()` uses. Duplicates are
     /// kept: the column answers "does this contain Reissue" / "is this a 7\"",
-    /// and collapsing would misrepresent a multi-format release. The CSV
-    /// writer quotes the field, so embedded separators round-trip intact.
+    /// and collapsing would misrepresent a multi-format release.
+    ///
+    /// **The result is containment-queryable, never splittable.** The
+    /// separator also occurs inside description values, so one description
+    /// `33 ⅓ RPM, Stereo` is indistinguishable from the two descriptions
+    /// `33 ⅓ RPM` and `Stereo`; and per-format attribution is lost, so a 7"
+    /// + CD box set yields `7", Album` with no way to say which format the
+    /// `7"` belongs to. That is the accepted cost of one flat column over a
+    /// `release_format_description` child table — consumers test for
+    /// containment, and anything needing per-description rows wants the
+    /// child table instead of a parse of this string.
+    ///
+    /// Empty descriptions are dropped upstream in the parser, so the join
+    /// never emits a doubled separator.
     pub fn format_descriptions_string(&self) -> String {
         self.formats
             .iter()

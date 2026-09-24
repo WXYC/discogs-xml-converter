@@ -653,8 +653,15 @@ fn parse_release_body<R: BufRead>(
                     // also has a `<description>` child, and matched on
                     // `<description>` specifically so a stray `<title>` (or
                     // any other element) inside `<descriptions>` is ignored.
+                    // An empty `<description>` contributes nothing: pushing
+                    // `""` would make the `", "` join emit a doubled
+                    // separator (`LP, , Album`). The guard also makes the
+                    // two spellings of "nothing here" agree — a
+                    // self-closing `<description />` arrives as
+                    // `Event::Empty`, which has no `description` arm, so it
+                    // is dropped and its expanded twin must be too.
                     b"description" => {
-                        if in_format {
+                        if in_format && !current_text.is_empty() {
                             if let Some(format) = release.formats.last_mut() {
                                 format.descriptions.push(current_text.clone());
                             }
@@ -1196,6 +1203,48 @@ mod tests {
         assert_eq!(
             release.format_descriptions_string(),
             "12\", Limited Edition"
+        );
+    }
+
+    /// An empty `<description>` must not become an empty description.
+    ///
+    /// Without a guard, `<description></description>` pushes `""` and the
+    /// `", "` join yields a doubled separator (`LP, , Album`) — a value no
+    /// consumer can interpret. It also made the two spellings of "nothing
+    /// here" disagree: a self-closing `<description />` arrives as
+    /// `Event::Empty`, which has no `description` arm at all, so it was
+    /// dropped while its expanded twin was kept. Both spellings must
+    /// contribute nothing.
+    #[test]
+    fn test_empty_format_description_is_dropped() {
+        let xml = br#"<release id="204" status="Accepted">
+    <title>Empty Description</title>
+    <artists>
+      <artist><id>5</id><name>Duke Ellington &amp; John Coltrane</name><anv></anv><join></join></artist>
+    </artists>
+    <formats>
+      <format name="Vinyl" qty="1" text="">
+        <descriptions>
+          <description>LP</description>
+          <description></description>
+          <description />
+          <description>Album</description>
+        </descriptions>
+      </format>
+    </formats>
+  </release>"#;
+
+        let release = parse_release_from_bytes(xml).unwrap();
+        assert_eq!(release.formats.len(), 1);
+        assert_eq!(
+            release.formats[0].descriptions,
+            vec!["LP", "Album"],
+            "empty <description> must not enter the list in either spelling"
+        );
+        assert_eq!(
+            release.format_descriptions_string(),
+            "LP, Album",
+            "the join must not emit a doubled separator"
         );
     }
 
