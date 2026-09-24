@@ -53,15 +53,19 @@ impl CsvOutput {
                     "data_quality",
                     "master_id",
                     "format",
-                    // `format_descriptions` is appended LAST, and must stay
-                    // last: `discogs-etl/scripts/import_csv.py` selects
-                    // columns by header name, but every pre-existing column
-                    // keeps its index so a legacy 9-column release.csv still
-                    // imports unchanged. Flattened with the same ", "
-                    // separator as `format`, carrying the pressing
+                    // `format_descriptions` carries the pressing
                     // distinctions (`Reissue`, `7"`, `Limited Edition`) the
-                    // format name cannot express.
-                    // See WXYC/discogs-xml-converter#91.
+                    // format name cannot express, flattened with the same
+                    // ", " separator as `format`.
+                    //
+                    // Header NAMES are the contract, not positions:
+                    // `discogs-etl/scripts/import_csv.py` resolves every
+                    // column by name and ignores header columns it was not
+                    // asked for, so a legacy 9-column release.csv keeps
+                    // importing because the absent *name* is not in the
+                    // lookup. Appending last is convention — a stable diff
+                    // for downstream expected-CSV fixtures — not a loader
+                    // requirement. See WXYC/discogs-xml-converter#91.
                     "format_descriptions",
                 ],
             ),
@@ -478,10 +482,10 @@ mod tests {
                 "data_quality",
                 "master_id",
                 "format",
-                // WXYC/discogs-xml-converter#91: appended LAST so every
-                // pre-existing column keeps its index. `import_csv.py`
-                // selects by header name, but positional stability is the
-                // guarantee that lets legacy CSVs keep loading.
+                // WXYC/discogs-xml-converter#91: appended last. This pins
+                // the convention, not a loader requirement — `import_csv.py`
+                // resolves columns by name, so what would actually break a
+                // consumer is renaming a column, not moving one.
                 "format_descriptions",
             ],
         );
@@ -595,8 +599,10 @@ mod tests {
 
     /// WXYC/discogs-xml-converter#91: round-trip the emitted `release.csv`,
     /// selecting every column by header name the way
-    /// `discogs-etl/scripts/import_csv.py` does, and pin the positional
-    /// layout so `format_descriptions` can only ever be appended last.
+    /// `discogs-etl/scripts/import_csv.py` does — names are the contract,
+    /// so this is the assertion that matters. The header-order check below
+    /// pins the append-last *convention* (and would catch an accidental
+    /// rename, which is what genuinely breaks a consumer).
     #[test]
     fn test_release_csv_round_trip_format_descriptions() {
         let dir = tempfile::tempdir().unwrap();
